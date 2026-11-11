@@ -8,9 +8,8 @@ shift-and-stack searches over the DECam Ecliptic Exploration Project
 source of survey geometry, MPC observations, mpchecker ephemerides and
 synthetic (fake) objects.
 
-> Status: phase 0. The package skeleton, the CLI and the database layer
-> exist. Ingesting search definitions and known-object tracklets from
-> deep-db comes next.
+> Status: phase 1. Known-object tracklets are ingested from deep-db.
+> Ingesting search definitions comes next.
 
 ## Installation
 
@@ -100,7 +99,63 @@ Commands:
     on a networked filesystem.
 - `deep-asteroids database fetch-deep-db` downloads deep-db, or confirms
   the cached copy is up to date.
-- `ingest` and `query` are placeholders for phase 1.
+- `deep-asteroids ingest tracklets` and `deep-asteroids query tracklets`:
+  see below.
+
+## Known-object tracklets
+
+```bash
+deep-asteroids ingest tracklets [synthetic|mpc-observations|mpc-ephemeris ...] [--night N ...] [--force]
+```
+
+This fits one linear tracklet per known object per night from deep-db
+into the `known_tracklet` table:
+
+| source | from deep-db | one tracklet per |
+|---|---|---|
+| `synthetic` | `synthetic_object_ephemeris` | synthetic object × night. Each binary also gets a `barycenter` (mean of the two component positions) and a `photocenter` (flux-weighted by `delta_h`) tracklet |
+| `mpc_observation` | `mpc_observation` | MPC tracklet (trkid/trksub) × night |
+| `mpchecker` | `mpchecker_ephemeris` | MPC object × night, fit on every predicted point (`n_on_chip` counts those that landed on a detector) |
+
+The model is `ra(t) = ra_epoch + vra·(t − epoch)` (and the same for
+dec):
+- Degrees and deg/day; `vra` is the plain dRA/dt, with no cos(dec) factor
+  (find-asteroids' convention).
+- Times are MJD **TAI**, with `epoch` at the mean time of the fitted points.
+- `ra_0`/`dec_0` on the model give find-asteroids' MJD-0 convention.
+
+Ephemerides are fit at the exposure midpoint; MPC observations use their
+own `obstime`. Points aren't stored: each row keeps the deep-db ids
+(`deep_db_synthetic_object_id`, `deep_db_mpc_tracklet_id`,
+`deep_db_mpc_object_id`) to re-read them from, plus the `deep_db_sha` it
+was built from.
+
+Every deep-db object or tracklet on a night gets a row. `flag` explains
+the ones without a usable fit:
+
+| flag | fit | meaning |
+|---|---|---|
+| `too_few_points` | none | fewer than 2 distinct times that night |
+| `conflated_trkid` | none | MPC tracklet whose observations are attributed to more than one object |
+| `same_obstime_conflict` | none | MPC tracklet with two observations at the same time more than 5″ apart |
+| `large_residual` | kept | a point more than `--max-residual-arcsec` (default 5″) from the line: mixed-up observations, or real curvature for a fast mover |
+
+Re-running skips (source, night) pairs that are already ingested;
+`--force` replaces them. The full ingest takes about 3.5 minutes and
+1.5 GB of memory against the published deep-db, writing about 521k
+tracklets.
+
+```bash
+deep-asteroids query tracklets [FIELDS ...] [--source S] [--night N] [--provid P] [--trkid T] \
+    [--orbit-id O] [--component C] [--flag F|none] [--header] [--output FILE]
+```
+
+This prints rows separated by `|`. For example, all four tracklets of one
+synthetic binary:
+
+```bash
+deep-asteroids query tracklets component night ra_epoch dec_epoch vra vdec --orbit-id 1002 --header
+```
 
 ## Acknowledgements
 
