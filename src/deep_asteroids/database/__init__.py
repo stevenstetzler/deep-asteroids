@@ -150,3 +150,13 @@ def get_deep_db(echo=False):
             ensure_echo_to_stderr()
         _engines[key] = create_engine(url, echo=echo)
     return _engines[key]
+
+
+def deep_db_sha():
+    """The sha256 of the deep-db SQLite file in use, from deep-db's
+    ``.sha256`` sidecar (never computed), or ``None`` if unknown (no
+    sidecar, or a non-SQLite deep-db)."""
+    from deep_asteroids.util.deep_db import cached_sha256, sqlite_path_from_url
+
+    path = sqlite_path_from_url(get_deep_db_url())
+    return cached_sha256(path) if path is not None else None
