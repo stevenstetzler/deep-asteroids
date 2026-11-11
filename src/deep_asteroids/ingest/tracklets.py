@@ -317,11 +317,53 @@ def mpc_observation_rows(deep_engine, nights=None):
     return rows, len(points)
 
 
+# --- mpchecker -------------------------------------------------------------------
+
+MPCHECKER_POINTS = """
+SELECT m.object_id, n.night, e.midpoint_mjd, m.ra, m.dec,
+       CASE WHEN m.detector_exposure_id IS NULL THEN 0 ELSE 1 END
+FROM mpchecker_ephemeris m
+JOIN exposure e ON e.id = m.exposure_id
+JOIN night n ON n.id = e.night_id
+WHERE m.object_id IS NOT NULL {nights}
+"""
+
+MPC_OBJECTS = "SELECT id, provid, permid, name FROM mpc_object"
+
+
+def mpchecker_rows(deep_engine, nights=None):
+    """``known_tracklet`` rows for mpchecker predictions (one per mpc_object per night), fit
+    on every predicted point -- on a detector or not -- with ``n_on_chip`` counting the former."""
+    points = _fetch_array(
+        deep_engine, _bind_nights(MPCHECKER_POINTS.format(nights=_nights_clause(nights)), nights),
+        {"nights": list(nights)} if nights is not None else {}, ncols=6,
+    )
+    obj, night, mjd_utc, ra, dec, on_chip = points.T if len(points) else (np.empty(0),) * 6
+    group = obj.astype(np.int64) * NIGHT_BASE + night.astype(np.int64)
+    t = utc_to_tai(mjd_utc)
+
+    with deep_engine.connect() as conn:
+        objects = {r[0]: r[1:] for r in conn.execute(text(MPC_OBJECTS))}
+
+    def identity(object_id):
+        provid, permid, name = objects[object_id]
+        return {"deep_db_mpc_object_id": object_id, "provid": provid, "permid": permid, "name": name}
+
+    fit = fit_linear_tracklets(group, t, ra, dec)
+    labels, idx = np.unique(group, return_inverse=True)
+    n_on_chip = np.bincount(idx, weights=on_chip, minlength=len(labels)).astype(int)
+    rows = _fit_rows(fit, identity)
+    for row, n in zip(rows, n_on_chip.tolist(), strict=True):
+        row["n_on_chip"] = n
+    return rows, len(points)
+
+
 # --- shared ------------------------------------------------------------------
 
 ROW_BUILDERS = {
     "synthetic": synthetic_rows,
     "mpc_observation": mpc_observation_rows,
+    "mpchecker": mpchecker_rows,
 }
 
 

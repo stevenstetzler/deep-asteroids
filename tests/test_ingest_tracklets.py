@@ -175,3 +175,25 @@ def test_large_residual_flag_keeps_fit(session):
     # no-fit flags win over large_residual
     assert rows["00000SING1"].flag == "too_few_points"
     assert summary.n_flagged["large_residual"] == 1
+
+
+# --- mpchecker -------------------------------------------------------------------
+
+def test_mpchecker_uses_all_points_and_counts_on_chip(session):
+    summary = ingest_source(session, get_deep_db(), "mpchecker")
+    assert summary.n_points == 3
+    (row,) = _rows(session, "mpchecker")
+    assert row.provid == "2019 GA179" and row.deep_db_mpc_object_id is not None
+    assert row.n_points == 3  # includes the off-chip prediction
+    assert row.n_on_chip == 2
+    assert row.flag is None and row.max_residual_arcsec < 1e-3
+
+
+def test_all_sources_together(session):
+    deep = get_deep_db()
+    for source in ("synthetic", "mpc_observation", "mpchecker"):
+        ingest_source(session, deep, source)
+    counts = dict(session.execute(
+        select(KnownTracklet.source, func.count()).group_by(KnownTracklet.source)
+    ).all())
+    assert counts == {"synthetic": 5, "mpc_observation": 4, "mpchecker": 1}
