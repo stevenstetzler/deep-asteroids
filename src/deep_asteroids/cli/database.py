@@ -44,7 +44,7 @@ def info(ctx, exact):
     from sqlalchemy.engine import make_url
 
     from deep_asteroids.database import get_db, get_db_url, get_deep_db, get_deep_db_url
-    from deep_asteroids.util.deep_db import cached_sha256
+    from deep_asteroids.util.deep_db import cached_sha256, sqlite_path_from_url
 
     click.echo(f"deep-asteroids: {get_db_url()}")
     engine = get_db()
@@ -62,16 +62,12 @@ def info(ctx, exact):
         click.echo(f"deep-db: {e}")
         return
     click.echo(f"deep-db: {deep_db_url}")
-    url = make_url(deep_db_url)
-    is_sqlite = url.get_backend_name() == "sqlite"
-    if is_sqlite and url.database:
-        from pathlib import Path
-
-        path = Path(url.database.removeprefix("file:"))
-        if path.exists():
-            click.echo(f"  path   {path}")
-            click.echo(f"  size   {path.stat().st_size:,} bytes")
-            click.echo(f"  sha256 {cached_sha256(path) or 'unknown (no .sha256 sidecar; see fetch-deep-db)'}")
+    is_sqlite = make_url(deep_db_url).get_backend_name() == "sqlite"
+    path = sqlite_path_from_url(deep_db_url)
+    if path is not None and path.exists():
+        click.echo(f"  path   {path}")
+        click.echo(f"  size   {path.stat().st_size:,} bytes")
+        click.echo(f"  sha256 {cached_sha256(path) or 'unknown (no .sha256 sidecar; see fetch-deep-db)'}")
     count = "count(*)" if exact or not is_sqlite else "coalesce(max(rowid), 0)"
     with get_deep_db().connect() as conn:
         for table in DEEP_DB_INFO_TABLES:

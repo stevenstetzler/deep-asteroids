@@ -50,6 +50,49 @@ def test_deep_db_url_env_override(deep_db_url):
         assert conn.execute(text("SELECT night FROM night")).scalar() == 20190402
 
 
+@pytest.mark.parametrize("form", ["plain_path", "four_slash_url", "uri_form_url"])
+def test_deep_db_env_forms_open_read_only(deep_db_path, monkeypatch, form):
+    value = {
+        "plain_path": str(deep_db_path),
+        "four_slash_url": f"sqlite:///{deep_db_path}",  # deep_db_path is absolute -> sqlite:////...
+        "uri_form_url": f"sqlite:///file:{deep_db_path}?mode=ro&uri=true",
+    }[form]
+    monkeypatch.setenv("DEEP_DB", value)
+    assert database.get_deep_db_url() == sqlite_readonly_url(deep_db_path)
+    with database.get_deep_db().connect() as conn:
+        assert conn.execute(text("SELECT night FROM night")).scalar() == 20190402
+    database.dispose_engines()
+
+
+def test_deep_db_three_slash_url_is_relative_and_reported(deep_db_path, tmp_path, monkeypatch):
+    # The reported bug: `sqlite:///abs/path` (three slashes) is the *relative*
+    # path `abs/path`, resolved against cwd -- it must fail clearly, naming the
+    # path it actually looked at, not with sqlite's "unable to open database file".
+    monkeypatch.chdir(tmp_path)
+    value = "sqlite:///" + str(deep_db_path).lstrip("/")
+    monkeypatch.setenv("DEEP_DB", value)
+    with pytest.raises(FileNotFoundError) as excinfo:
+        database.get_deep_db_url()
+    message = str(excinfo.value)
+    assert str(tmp_path / str(deep_db_path).lstrip("/")) in message
+    assert "sqlite:////" in message
+
+
+def test_deep_db_missing_file_is_not_created(tmp_path, monkeypatch):
+    missing = tmp_path / "nope" / "deep_database.sqlite"
+    missing.parent.mkdir()
+    monkeypatch.setenv("DEEP_DB", f"sqlite:///{missing}")
+    with pytest.raises(FileNotFoundError, match=str(missing)):
+        database.get_deep_db()
+    assert not missing.exists()  # sqlite would otherwise silently create an empty database here
+
+
+@pytest.mark.parametrize("url", ["postgresql://host:5432/deep_db", "sqlite://"])
+def test_deep_db_non_file_urls_pass_through(url, monkeypatch):
+    monkeypatch.setenv("DEEP_DB", url)
+    assert database.get_deep_db_url() == url
+
+
 def test_deep_db_url_falls_back_to_deep_db_cache(tmp_path, monkeypatch):
     monkeypatch.delenv("DEEP_DB", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))

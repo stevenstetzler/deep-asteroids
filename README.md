@@ -44,6 +44,14 @@ deep-asteroids talks to two databases:
 | **deep-asteroids** (read/write) | search definitions, known-object tracklets, and find-asteroids' own `search`/`result`/`tracklet`/`gathered`/`points` tables (same metadata, so everything joins in plain SQL) | `./deep_asteroids.sqlite` | `DEEP_ASTEROIDS_DB`, any SQLAlchemy URL |
 | **deep-db** (read-only) | survey geometry, MPC observations, mpchecker ephemerides, synthetic objects | deep-db's cached copy of the published SQLite file, `$XDG_CACHE_HOME/deep_db/deep_database.sqlite` (1.7 GB), opened read-only and immutable | `DEEP_DB`, any SQLAlchemy URL |
 
+`DEEP_DB` can be a plain file path (`DEEP_DB=/path/to/deep_database.sqlite`)
+or a SQLAlchemy URL. Any SQLite target must already exist, and is always
+opened read-only and immutable. In a SQLite URL, `sqlite:///path` is
+**relative** to the current directory; an absolute path needs four
+slashes, `sqlite:////abs/path`. A mistyped path is reported along with the
+path that was actually resolved, rather than SQLite silently creating an
+empty database there.
+
 deep-asteroids **never downloads deep-db implicitly**. Fetch it once,
 explicitly, on a machine with good network (e.g. a cluster login node):
 

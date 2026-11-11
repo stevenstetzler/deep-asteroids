@@ -86,13 +86,39 @@ def deep_db_cache_path():
 
 def get_deep_db_url():
     """The deep-db URL: ``$DEEP_DB`` if set, else deep-db's cached SQLite
-    file, read-only. Raises ``FileNotFoundError`` (never downloads) if the
-    cached file is missing."""
-    from deep_asteroids.util.deep_db import sqlite_readonly_url
+    file. Never downloads.
 
-    url = os.environ.get(DEEP_DB_ENV)
-    if url:
-        return url
+    ``$DEEP_DB`` may be a plain filesystem path or any SQLAlchemy URL. Any
+    SQLite target (path or ``sqlite://`` URL) must already exist, and is
+    always opened read-only and immutable. This matters because SQLite
+    otherwise silently creates an empty database for a mistyped path --
+    e.g. ``sqlite:///abs/path`` (three slashes) is the *relative* path
+    ``abs/path``; an absolute path needs four. Non-SQLite URLs pass through
+    unchanged. Raises ``FileNotFoundError`` naming the resolved path if a
+    SQLite file is missing."""
+    from deep_asteroids.util.deep_db import sqlite_path_from_url, sqlite_readonly_url
+
+    value = os.environ.get(DEEP_DB_ENV)
+    if value:
+        if "://" not in value:
+            path = Path(value).expanduser()
+            hint = ""
+        else:
+            path = sqlite_path_from_url(value)
+            if path is None:
+                return value  # not SQLite (e.g. postgresql://): use as given
+            hint = (
+                "; note sqlite:///<path> is relative to the current directory -- use "
+                "sqlite:////<path> (four slashes) for an absolute path, or set it to a plain file path"
+                if not path.is_absolute() else ""
+            )
+        resolved = path.resolve()
+        if not resolved.is_file():
+            raise FileNotFoundError(
+                f"${DEEP_DB_ENV}={value!r} points at {resolved}, which does not exist{hint}"
+            )
+        return sqlite_readonly_url(resolved)
+
     path = deep_db_cache_path()
     if not path.exists():
         raise FileNotFoundError(
