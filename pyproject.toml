@@ -1,0 +1,53 @@
+[project]
+name = "deep-asteroids"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+readme = "README.md"
+authors = [
+    { name = "Steven Stetzler", email = "steven.stetzler@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+]
+dynamic = ["version"]
+requires-python = ">=3.10"
+dependencies = [
+    "astropy",
+    "click",
+    "numpy",
+    "sqlalchemy>=2",
+    "find-asteroids @ git+https://github.com/stevenstetzler/find-asteroids@bcbab550fe93a15acd20092815683d9a5a16ce78",
+    "deep-db @ git+https://github.com/stevenstetzler/deep-db@36a212d0440307064ad5959b4fc9a6b5f36d681f",
+]
+
+[project.scripts]
+deep-asteroids = "deep_asteroids.cli:main"
+
+[project.urls]
+"Source Code" = "https://github.com/stevenstetzler/deep-asteroids"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[build-system]
+requires = [
+    "setuptools>=77",
+    "setuptools_scm>=6.2",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+write_to = "src/deep_asteroids/_version.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"

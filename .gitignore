@@ -221,3 +221,7 @@ __marimo__/
 
 # agent working notes / plans (local only)
 agent/
+
+# local databases
+*.sqlite
+src/deep_asteroids/_version.py
