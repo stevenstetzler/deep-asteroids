@@ -102,6 +102,37 @@ def _seed_deep_db(session):
             ra=ra, dec=dec, v_mag=23.0,
         ))
 
+    # three problem MPC tracklets (all on detector 4):
+    # - conflated: observations attributed to two different objects, ~1 deg apart
+    other_object = MPCObject(provid="2020 UQ54")
+    session.add(other_object)
+    session.flush()
+    conflated = MPCTracklet(object_id=None, trkid="00000FFq5p", trksub="IASp1Nm")
+    # - same-obstime conflict: two observations at the same time, 10" apart
+    conflict = MPCTracklet(object_id=None, trkid="00000CONF1", trksub="conf1")
+    # - single observation: nothing to fit
+    single_obs = MPCTracklet(object_id=None, trkid="00000SING1", trksub="sing1")
+    session.add_all([conflated, conflict, single_obs])
+    session.flush()
+    for i in range(N_EXPOSURES):
+        de_id = detector_exposures[(i, 4)].id
+        obj = mpc_object if i < 2 else other_object
+        ra, dec = track(214.8 + (1.0 if i == 2 else 0.0), -12.9, 0.2, 0.0, i)
+        session.add(MPCObservation(obsid=f"conflated{i}", object_id=obj.id, exposure_id=exposures[i].id,
+                                   detector_exposure_id=de_id, mpc_tracklet_id=conflated.id,
+                                   ra=ra, dec=dec, obstime=exposures[i].midpoint, status="I"))
+        ra, dec = track(214.7, -12.8, 0.1, 0.0, i)
+        session.add(MPCObservation(obsid=f"conflict{i}", object_id=None, exposure_id=exposures[i].id,
+                                   detector_exposure_id=de_id, mpc_tracklet_id=conflict.id,
+                                   ra=ra, dec=dec, obstime=exposures[i].midpoint, status="I"))
+        if i == 1:
+            session.add(MPCObservation(obsid="conflict1b", object_id=None, exposure_id=exposures[i].id,
+                                       detector_exposure_id=de_id, mpc_tracklet_id=conflict.id,
+                                       ra=ra, dec=dec + 10.0 / 3600, obstime=exposures[i].midpoint, status="I"))
+    session.add(MPCObservation(obsid="single0", object_id=None, exposure_id=exposures[0].id,
+                               detector_exposure_id=None, mpc_tracklet_id=single_obs.id,
+                               ra=214.6, dec=-12.7, obstime=exposures[0].midpoint, status="p"))
+
     # one single fake and one fake binary (primary + companion, 2" apart)
     single_designation = SyntheticObjectDesignation(orbit_id=1001, name="fake1001")
     binary_designation = SyntheticObjectDesignation(orbit_id=1002, name="fake1002")

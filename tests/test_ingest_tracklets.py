@@ -128,3 +128,50 @@ def test_nights_restricts_scope(session):
 def test_unknown_source_raises(session):
     with pytest.raises(ValueError, match="unknown source"):
         ingest_source(session, get_deep_db(), "nope")
+
+
+# --- mpc_observation -------------------------------------------------------------
+
+def test_mpc_observation_rows_and_flags(session):
+    summary = ingest_source(session, get_deep_db(), "mpc_observation", deep_db_sha="abc")
+    assert summary.n_points == 3 + 3 + 4 + 1
+    rows = {r.trkid: r for r in _rows(session, "mpc_observation")}
+    assert set(rows) == {"00000E2QG2", "00000FFq5p", "00000CONF1", "00000SING1"}
+
+    good = rows["00000E2QG2"]
+    assert good.flag is None and good.n_points == 3
+    assert good.trksub == "Hmdf1RN" and good.provid == "2019 GA179"
+    assert good.statuses == "P"
+    assert good.max_residual_arcsec < 1e-3
+
+    assert rows["00000FFq5p"].flag == "conflated_trkid"
+    assert rows["00000FFq5p"].provid is None  # deep-db leaves a conflated tracklet unattributed
+    assert rows["00000CONF1"].flag == "same_obstime_conflict"
+    assert rows["00000CONF1"].n_points == 4
+    assert rows["00000SING1"].flag == "too_few_points"
+    assert rows["00000SING1"].statuses == "p"
+    for trkid in ("00000FFq5p", "00000CONF1", "00000SING1"):
+        assert rows[trkid].vra is None and rows[trkid].max_residual_arcsec is None
+    assert summary.n_flagged == {"conflated_trkid": 1, "same_obstime_conflict": 1, "too_few_points": 1}
+
+
+def test_mpc_observation_fit_reproduces_observations(session):
+    ingest_source(session, get_deep_db(), "mpc_observation")
+    (row,) = _rows(session, "mpc_observation", trkid="00000E2QG2")
+    pts = _deep_points(
+        "SELECT julianday(obstime) - 2400000.5, ra, dec FROM mpc_observation WHERE mpc_tracklet_id = :id",
+        id=row.deep_db_mpc_tracklet_id,
+    )
+    ra, dec = predict(row.epoch, row.ra_epoch, row.dec_epoch, row.vra, row.vdec, utc_to_tai(pts[:, 0]))
+    assert sep_arcsec(ra, dec, pts[:, 1], pts[:, 2]).max() < 1e-3
+
+
+def test_large_residual_flag_keeps_fit(session):
+    # the fixture's points are exactly linear: a ~0 threshold flags every fitted tracklet
+    summary = ingest_source(session, get_deep_db(), "mpc_observation", max_residual_arcsec=-1.0)
+    rows = {r.trkid: r for r in _rows(session, "mpc_observation")}
+    assert rows["00000E2QG2"].flag == "large_residual"
+    assert rows["00000E2QG2"].vra is not None
+    # no-fit flags win over large_residual
+    assert rows["00000SING1"].flag == "too_few_points"
+    assert summary.n_flagged["large_residual"] == 1

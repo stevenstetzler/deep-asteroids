@@ -79,3 +79,11 @@ def test_check_constraints(session, bad):
 def test_flagged_row_without_fit_is_allowed(session):
     session.add(_row(flag="too_few_points", max_residual_arcsec=None, **dict.fromkeys(FIT)))
     session.commit()
+
+
+def test_large_residual_flag_keeps_its_fit(session):
+    session.add(_row(flag="large_residual", max_residual_arcsec=12.0))
+    session.commit()
+    session.add(_row(flag="large_residual", orbit_id=2, **dict.fromkeys(FIT)))  # suspect, but must have a fit
+    with pytest.raises(IntegrityError):
+        session.commit()

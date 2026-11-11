@@ -37,6 +37,8 @@ from deep_asteroids.ingest.fit import fit_linear_tracklets, tangent_plane_weight
 log = logging.getLogger(__name__)
 
 SOURCES = ("synthetic", "mpc_observation", "mpchecker")
+# a fitted tracklet whose worst point is further than this from its line is flagged 'large_residual'
+MAX_RESIDUAL_ARCSEC = 5.0
 NIGHT_BASE = 10**8  # nights are YYYYMMDD: group label = object_id * NIGHT_BASE + night
 
 
@@ -213,10 +215,113 @@ def _binary_center_rows(obj, night, t, ra, dec, exposure_id, objects, binaries):
     return rows
 
 
+# --- mpc_observation -----------------------------------------------------------
+
+SAME_OBSTIME_MAX_SEP_ARCSEC = 5.0
+
+# obstime -> UTC MJD. deep-db's SQLite stores DateTime as ISO text; julianday()
+# keeps this a numeric-only stream (sub-millisecond precision, plenty here).
+MPC_OBSTIME_MJD = {
+    "sqlite": "julianday(o.obstime) - 2400000.5",
+    "postgresql": "EXTRACT(EPOCH FROM o.obstime) / 86400.0 + 40587.0",
+}
+
+MPC_POINTS = """
+SELECT o.mpc_tracklet_id, n.night, {mjd}, o.ra, o.dec, coalesce(o.object_id, -1)
+FROM mpc_observation o
+JOIN exposure e ON e.id = o.exposure_id
+JOIN night n ON n.id = e.night_id
+WHERE 1=1 {nights}
+"""
+
+MPC_TRACKLET_STATUSES = """
+SELECT DISTINCT o.mpc_tracklet_id, n.night, o.status
+FROM mpc_observation o
+JOIN exposure e ON e.id = o.exposure_id
+JOIN night n ON n.id = e.night_id
+WHERE o.status IS NOT NULL {nights}
+"""
+
+MPC_TRACKLETS = """
+SELECT t.id, t.trkid, t.trksub, t.object_id, mo.provid, mo.permid, mo.name
+FROM mpc_tracklet t LEFT JOIN mpc_object mo ON mo.id = t.object_id
+"""
+
+
+def _same_obstime_conflicts(group, t, ra, dec, max_sep_arcsec=SAME_OBSTIME_MAX_SEP_ARCSEC):
+    """Group labels with two points at the identical time more than
+    ``max_sep_arcsec`` apart -- two objects reported under one tracklet
+    (ported from salad's ``find_corrupted_trkids``)."""
+    from deep_asteroids.ingest.fit import sep_arcsec
+
+    order = np.lexsort((t, group))
+    g, tt, r, d = group[order], t[order], ra[order], dec[order]
+    same = (g[1:] == g[:-1]) & (tt[1:] == tt[:-1])
+    if not same.any():
+        return set()
+    # every pair at the same (group, time) -- runs are short (a handful of points), so compare
+    # each point with the first point of its run and with its predecessor
+    run_start = np.r_[0, np.flatnonzero(~same) + 1]
+    run_id = np.repeat(np.arange(len(run_start)), np.diff(np.r_[run_start, len(g)]))
+    first = run_start[run_id]
+    sep = np.maximum(
+        sep_arcsec(r, d, r[first], d[first]),
+        np.r_[0.0, np.where(same, sep_arcsec(r[1:], d[1:], r[:-1], d[:-1]), 0.0)],
+    )
+    return set(g[sep > max_sep_arcsec].tolist())
+
+
+def mpc_observation_rows(deep_engine, nights=None):
+    """``known_tracklet`` rows for MPC observation tracklets (one per mpc_tracklet per night)."""
+    dialect = deep_engine.dialect.name
+    if dialect not in MPC_OBSTIME_MJD:
+        raise NotImplementedError(f"deep-db on {dialect!r} is not supported (obstime -> MJD)")
+    params = {"nights": list(nights)} if nights is not None else {}
+    clause = _nights_clause(nights)
+    points = _fetch_array(
+        deep_engine, _bind_nights(MPC_POINTS.format(mjd=MPC_OBSTIME_MJD[dialect], nights=clause), nights),
+        params, ncols=6,
+    )
+    tracklet, night, mjd_utc, ra, dec, object_id = points.T if len(points) else (np.empty(0),) * 6
+    tracklet, night, object_id = (a.astype(np.int64) for a in (tracklet, night, object_id))
+    t = utc_to_tai(mjd_utc)
+    group = tracklet * NIGHT_BASE + night
+
+    with deep_engine.connect() as conn:
+        tracklets = {r[0]: r[1:] for r in conn.execute(text(MPC_TRACKLETS))}
+        statuses = {}
+        for tid, n, status in conn.execute(_bind_nights(MPC_TRACKLET_STATUSES.format(nights=clause), nights),
+                                           params):
+            statuses.setdefault((tid, n), set()).add(status)
+
+    # flags decided before fitting
+    attributed = object_id >= 0
+    pairs = np.unique(np.c_[group[attributed], object_id[attributed]], axis=0)
+    labels, n_objects = np.unique(pairs[:, 0], return_counts=True) if len(pairs) else (np.empty(0), [])
+    conflated = set(labels[np.asarray(n_objects) > 1].tolist())
+    conflicting = _same_obstime_conflicts(group, t, ra, dec) - conflated
+
+    def identity(tracklet_id):
+        trkid, trksub, mpc_object_id, provid, permid, name = tracklets[tracklet_id]
+        return {"deep_db_mpc_tracklet_id": tracklet_id, "trkid": trkid, "trksub": trksub,
+                "deep_db_mpc_object_id": mpc_object_id, "provid": provid, "permid": permid, "name": name}
+
+    fit = fit_linear_tracklets(group, t, ra, dec)
+    rows = _fit_rows(fit, identity)
+    for label, row in zip(fit["group"].tolist(), rows, strict=True):
+        row["statuses"] = ",".join(sorted(statuses.get((label // NIGHT_BASE, label % NIGHT_BASE), ())))
+        flag = "conflated_trkid" if label in conflated else "same_obstime_conflict" if label in conflicting else None
+        if flag:
+            row.update(flag=flag, epoch=None, ra_epoch=None, dec_epoch=None, vra=None, vdec=None,
+                       max_residual_arcsec=None)
+    return rows, len(points)
+
+
 # --- shared ------------------------------------------------------------------
 
 ROW_BUILDERS = {
     "synthetic": synthetic_rows,
+    "mpc_observation": mpc_observation_rows,
 }
 
 
@@ -225,9 +330,12 @@ def deep_db_nights(deep_engine):
         return sorted(r[0] for r in conn.execute(text("SELECT night FROM night WHERE night IS NOT NULL")))
 
 
-def ingest_source(session, deep_engine, source, nights=None, force=False, deep_db_sha=None):
+def ingest_source(session, deep_engine, source, nights=None, force=False, deep_db_sha=None,
+                  max_residual_arcsec=MAX_RESIDUAL_ARCSEC):
     """Ingest one source for ``nights`` (default: every deep-db night).
-    Returns a ``SourceSummary``. Commits."""
+    A fitted tracklet with a point more than ``max_residual_arcsec`` from its
+    line keeps its fit and is flagged ``large_residual``. Returns a
+    ``SourceSummary``. Commits."""
     if source not in ROW_BUILDERS:
         raise ValueError(f"unknown source {source!r}; expected one of {sorted(ROW_BUILDERS)}")
     summary = SourceSummary(source)
@@ -252,6 +360,8 @@ def ingest_source(session, deep_engine, source, nights=None, force=False, deep_d
     rows, summary.n_points = ROW_BUILDERS[source](deep_engine, nights=todo)
     created_at = _now()
     for row in rows:
+        if row["flag"] is None and row["max_residual_arcsec"] > max_residual_arcsec:
+            row["flag"] = "large_residual"
         row["source"] = source
         row["deep_db_sha"] = deep_db_sha
         row["created_at"] = created_at

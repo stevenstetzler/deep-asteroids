@@ -8,7 +8,11 @@ from deep_asteroids.database.models import Base
 
 SOURCES = ("synthetic", "mpc_observation", "mpchecker")
 SYNTHETIC_COMPONENTS = ("primary", "companion", "barycenter", "photocenter")
-FLAGS = ("too_few_points", "conflated_trkid", "same_obstime_conflict")
+# flags that mean "no fit" (the fit columns are NULL) ...
+NO_FIT_FLAGS = ("too_few_points", "conflated_trkid", "same_obstime_conflict")
+# ... and flags that keep the fit but mark it suspect
+SUSPECT_FIT_FLAGS = ("large_residual",)
+FLAGS = NO_FIT_FLAGS + SUSPECT_FIT_FLAGS
 
 
 def _sql_list(values):
@@ -33,8 +37,11 @@ class KnownTracklet(Base):
     converted on ingest). ``epoch`` is the mean time of the fitted points.
 
     The fit columns are NULL when there is no fit, with ``flag`` saying why
-    -- every deep-db object/tracklet on a night gets a row, so none is
-    dropped silently.
+    (``too_few_points``/``conflated_trkid``/``same_obstime_conflict``) --
+    every deep-db object/tracklet on a night gets a row, so none is dropped
+    silently. ``flag = 'large_residual'`` keeps the fit but marks it
+    suspect: its worst point is further from the line than the ingest's
+    threshold (mixed-up observations, or real curvature over a long arc).
 
     Identity columns refer to deep-db rows by id (no foreign keys: deep-db is
     a separate database). Points are not stored here; re-read them from
@@ -58,12 +65,13 @@ class KnownTracklet(Base):
             name="ck_known_tracklet_component",
         ),
         CheckConstraint(f"flag IS NULL OR flag IN ({_sql_list(FLAGS)})", name="ck_known_tracklet_flag"),
-        # a fit is all-or-nothing, and missing exactly when flagged
+        # a fit is all-or-nothing, and missing exactly when a no-fit flag is set
         CheckConstraint(
-            "(flag IS NULL AND epoch IS NOT NULL AND ra_epoch IS NOT NULL AND dec_epoch IS NOT NULL "
+            f"((flag IS NULL OR flag IN ({_sql_list(SUSPECT_FIT_FLAGS)})) "
+            "AND epoch IS NOT NULL AND ra_epoch IS NOT NULL AND dec_epoch IS NOT NULL "
             "AND vra IS NOT NULL AND vdec IS NOT NULL) OR "
-            "(flag IS NOT NULL AND epoch IS NULL AND ra_epoch IS NULL AND dec_epoch IS NULL "
-            "AND vra IS NULL AND vdec IS NULL)",
+            f"(flag IN ({_sql_list(NO_FIT_FLAGS)}) AND epoch IS NULL AND ra_epoch IS NULL "
+            "AND dec_epoch IS NULL AND vra IS NULL AND vdec IS NULL)",
             name="ck_known_tracklet_fit_xor_flag",
         ),
         # natural keys, one per source
