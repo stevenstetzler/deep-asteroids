@@ -58,6 +58,7 @@ def create_db(force=False):
 
     from deep_asteroids.database.models import Base
 
+    import_models()
     url = make_url(get_db_url())
     if force:
         if url.get_backend_name() == "sqlite" and url.database and url.database != ":memory:":
@@ -68,6 +69,13 @@ def create_db(force=False):
     engine = get_db()
     Base.metadata.create_all(engine)
     return engine
+
+
+def import_models():
+    """Import every module that declares deep-asteroids tables, registering
+    them on ``Base.metadata`` (find-asteroids' tables come with ``models``)."""
+    import deep_asteroids.database.models
+    import deep_asteroids.database.tracklets  # noqa: F401
 
 
 def dispose_engines():
@@ -142,3 +150,13 @@ def get_deep_db(echo=False):
             ensure_echo_to_stderr()
         _engines[key] = create_engine(url, echo=echo)
     return _engines[key]
+
+
+def deep_db_sha():
+    """The sha256 of the deep-db SQLite file in use, from deep-db's
+    ``.sha256`` sidecar (never computed), or ``None`` if unknown (no
+    sidecar, or a non-SQLite deep-db)."""
+    from deep_asteroids.util.deep_db import cached_sha256, sqlite_path_from_url
+
+    path = sqlite_path_from_url(get_deep_db_url())
+    return cached_sha256(path) if path is not None else None

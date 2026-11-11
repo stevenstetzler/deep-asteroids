@@ -2,8 +2,49 @@ import click
 
 from deep_asteroids.cli import main
 
+# CLI source name -> known_tracklet.source
+TRACKLET_SOURCES = {
+    "synthetic": "synthetic",
+    "mpc-observations": "mpc_observation",
+    "mpc-ephemeris": "mpchecker",
+}
+
 
 @main.group()
 @click.pass_context
 def ingest(ctx):
-    """Ingest search definitions and known-object tracklets from deep-db (phase 1)."""
+    """Ingest search definitions and known-object tracklets from deep-db."""
+
+
+@ingest.command()
+@click.argument("sources", nargs=-1, type=click.Choice(sorted(TRACKLET_SOURCES)))
+@click.option("--night", "nights", multiple=True, type=int, help="Only these deep-db nights (repeatable)")
+@click.option("--force", is_flag=True, help="Replace (source, night) rows that already exist")
+@click.option(
+    "--max-residual-arcsec", type=float, default=None, show_default="5.0",
+    help="Flag a fitted tracklet 'large_residual' (fit kept) if a point is further than this from its line",
+)
+@click.pass_context
+def tracklets(ctx, sources, nights, force, max_residual_arcsec):
+    """Fit one linear tracklet per known object per night from deep-db.
+
+    SOURCES (default: all): synthetic (synthetic objects, plus binary
+    barycenter/photocenter), mpc-observations (MPC observation tracklets),
+    mpc-ephemeris (mpchecker predictions). Re-running skips (source, night)
+    pairs already ingested unless --force."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import create_db, deep_db_sha, get_deep_db
+    from deep_asteroids.ingest.tracklets import MAX_RESIDUAL_ARCSEC, ingest_source
+
+    sources = sources or tuple(TRACKLET_SOURCES)
+    deep_engine = get_deep_db()
+    sha = deep_db_sha()
+    with Session(create_db()) as session:
+        for name in sources:
+            summary = ingest_source(
+                session, deep_engine, TRACKLET_SOURCES[name], nights=list(nights) or None, force=force,
+                deep_db_sha=sha,
+                max_residual_arcsec=MAX_RESIDUAL_ARCSEC if max_residual_arcsec is None else max_residual_arcsec,
+            )
+            click.echo(summary.format())
