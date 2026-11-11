@@ -1,4 +1,5 @@
 import click
+
 from deep_asteroids.cli import main
 
 

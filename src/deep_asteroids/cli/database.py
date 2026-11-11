@@ -1,4 +1,5 @@
 import click
+
 from deep_asteroids.cli import main
 
 # deep-db tables `database info` reports row counts for
@@ -41,6 +42,7 @@ def info(ctx, exact):
     """Show both database URLs, our table row counts, and the deep-db file's identity and row counts."""
     from sqlalchemy import inspect, text
     from sqlalchemy.engine import make_url
+
     from deep_asteroids.database import get_db, get_db_url, get_deep_db, get_deep_db_url
     from deep_asteroids.util.deep_db import cached_sha256
 

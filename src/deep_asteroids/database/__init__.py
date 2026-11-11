@@ -54,8 +54,9 @@ def create_db(force=False):
     """Create every table on the deep-asteroids database. With ``force``,
     delete a SQLite file first (or drop all tables for any other backend)
     -- the drop-and-re-ingest policy."""
-    from deep_asteroids.database.models import Base
     from sqlalchemy.engine import make_url
+
+    from deep_asteroids.database.models import Base
 
     url = make_url(get_db_url())
     if force:
