@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# agent working notes / plans (local only)
+agent/
+
+# local databases
+*.sqlite
+src/deep_asteroids/_version.py
