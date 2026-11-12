@@ -35,7 +35,7 @@ def test_one_search_per_detector(session):
     for row, detector_name in zip(rows, ("S25", "S26")):
         assert row.field == FIELD
         assert row.detector_name == detector_name
-        assert row.run_id == f"{FIELD}-ccd{row.detector_number:02d}-{NIGHT}"
+        assert row.run_id == f"deep-decam-{FIELD}-ccd{row.detector_number}-{NIGHT}"
         assert row.band == "VR"
         assert row.n_exposures == 3
         assert row.t_start_mjd < row.t_end_mjd

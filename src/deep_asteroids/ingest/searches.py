@@ -65,7 +65,11 @@ def _now():
 
 
 def _run_id(field_name, detector_number, night):
-    return f"{field_name}-ccd{detector_number:02d}-{night}"
+    """find-asteroids' own ``Search.run_id`` convention -- matches salad's
+    ``DeepDecamPointingGroupStrategy.run_id_for()`` exactly (verified
+    against its real ``search_task.run_id`` rows: ``deep-decam-<field>-ccd
+    <detector_number>-<night>``, detector_number **not** zero-padded)."""
+    return f"deep-decam-{field_name}-ccd{detector_number}-{night}"
 
 
 def deep_db_nights(deep_engine):

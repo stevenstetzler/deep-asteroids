@@ -15,9 +15,11 @@ class SearchDefinition(Base):
     minimum-exposure filtering is deferred to the search stage (so this
     table records every triple, not just the ones that'll be searched).
 
-    `run_id` is find-asteroids' own `Search.run_id` convention,
-    `<field>-ccd<detector_number zero-padded to 2 digits>-<night>`
-    (e.g. ``A0b-ccd04-20190402``).
+    `run_id` is find-asteroids' own `Search.run_id` convention, matching
+    salad's `DeepDecamPointingGroupStrategy.run_id_for()` exactly:
+    `deep-decam-<field>-ccd<detector_number>-<night>` (e.g.
+    ``deep-decam-A0b-ccd4-20190402`` -- detector_number is *not*
+    zero-padded).
 
     `band` is the most common `exposure.band` among the triple's exposures
     (ties broken alphabetically). A handful of triples mix bands within one

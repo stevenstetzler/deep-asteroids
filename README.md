@@ -114,9 +114,10 @@ knows about -- one CCD of one pointing group over one night, the unit
 find-asteroids searches. This ingests **every** triple; filtering by
 band, science field or minimum exposure count is deferred to the search
 stage, so `band`/`n_exposures` are recorded for all of them, not just the
-ones that'll eventually be searched. `run_id` is find-asteroids' own
-convention, `<field>-ccd<detector_number>-<night>` (e.g.
-`A0b-ccd04-20190402`).
+ones that'll eventually be searched. `run_id` matches salad's own
+`deep-decam-<field>-ccd<detector_number>-<night>` convention (e.g.
+`deep-decam-A0b-ccd4-20190402` -- not zero-padded; verified against
+salad's real `search_task.run_id` rows).
 
 Each search's exposures (`search_definition_exposure`) keep the time
 baseline (`midpoint_mjd`) and chip footprint corners, copied from deep-db,
