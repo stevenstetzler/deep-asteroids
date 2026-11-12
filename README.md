@@ -9,8 +9,9 @@ source of survey geometry, MPC observations, mpchecker ephemerides and
 synthetic (fake) objects.
 
 > Status: phase 1. Known-object tracklets, search definitions, and
-> images (linking exposures to Butler dataset paths) are ingested. A
-> vendored cutout/photometry engine comes next.
+> images (linking exposures to Butler dataset paths) are ingested, and a
+> vendored forced-photometry/cutout engine is in place. Visualizing
+> known objects' cutouts/light curves comes next.
 
 ## Installation
 
@@ -191,6 +192,42 @@ deep-asteroids query images [FIELDS ...] [--night N] [--field F] [--detector-num
 ```
 
 Same `|`-separated style as `query searches`/`query tracklets`.
+
+## Cutouts and forced photometry
+
+`deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++
+binary, `cutout_and_photometry` (`util/cutout_engine/`), that reads a
+real `differenceExp`/`calexp`'s pixels, PSF and photometric calibration
+to do forced PSF photometry (flux/mag + uncertainty) and write a pixel
+cutout at any caller-supplied sky position -- ported from salad's own
+`cutout_and_photometry.cc` (see `util/cutout_engine/VENDORED_FROM.md`
+for exactly what's vendored verbatim vs. trimmed, and why). Once built,
+it has **no LSST/Python runtime dependency** -- `opt_lsst` is only
+needed at build time:
+
+```bash
+cd src/deep_asteroids/util/cutout_engine
+source /mmfs1/gscratch/dirac/shared/opt_lsst/bin/opt_lsst.sh && opt_lsst setup w_2023_38
+bash build.sh
+```
+
+```python
+from deep_asteroids.util.cutout import LSSTCutoutPhotometry, PhotometryRequest
+
+engine = LSSTCutoutPhotometry()
+for record in engine.measure(image_uri, [PhotometryRequest(id="1", ra=215.24, dec=-12.89)],
+                              cutout_dir="cutouts", cutout_size=31):
+    print(record)  # PhotometryRecord(in_bounds, flux, mag, ..., cutout_path)
+```
+
+Verified against a real DECam `differenceExp` (`DEEP/20190402/A0b`,
+visit 845580, detector S25, from `ingest images`): forced photometry at
+a real detected peak (`ix=1309, iy=89`) matches salad's own
+`detect_and_measure`'s production forced-photometry output exactly
+(flux 7095.26, mag 21.618, snr 19.66), and the freshly-built binary's
+output is byte-for-byte identical to salad's own already-built copy at
+the same position -- confirming the trimmed `detect_common.h` changed
+nothing behavioral.
 
 ## Known-object tracklets
 
