@@ -143,10 +143,11 @@ bands) across 1.1M exposure-detector rows (each exposure counted once
 per search it belongs to).
 
 ```bash
-deep-asteroids query searches [FIELDS ...] [--night N] [--field F] [--detector-number D] [--band B|''] [--header] [--output FILE]
+deep-asteroids query searches [FIELDS ...] [--night N] [--field F] [--detector-number D] [--band B|''|none] [--header] [--output FILE]
 ```
 
-`--band ''` selects the undefined-band (`band = NULL`) rows -- the ones
+`--band ''`/`--band none` (same convention as `query tracklets --flag
+none`) selects the undefined-band (`band = NULL`) rows -- the ones
 spanning every band of their triple.
 Same `|`-separated style as `query tracklets`.
 

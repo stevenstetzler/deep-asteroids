@@ -38,11 +38,12 @@ def test_query_searches_band_filter(runner):
     assert {r[0] for r in vr_rows} == {"4", "5"}
     assert all(r[1] == "3" for r in vr_rows)
 
-    undefined_rows = _query(runner, "detector_number", "n_exposures", "band", "--band", "")
-    assert {r[0] for r in undefined_rows} == {"4", "5"}
-    assert all(r[1:] == ["3", ""] for r in undefined_rows)  # band prints as "" for NULL
+    for sentinel in ("", "none"):
+        undefined_rows = _query(runner, "detector_number", "n_exposures", "band", "--band", sentinel)
+        assert {r[0] for r in undefined_rows} == {"4", "5"}
+        assert all(r[1:] == ["3", ""] for r in undefined_rows)  # band prints as "" for NULL
 
-    both = _query(runner, "band", "--band", "VR", "--band", "")
+    both = _query(runner, "band", "--band", "VR", "--band", "none")
     assert sorted(r[0] for r in both) == ["", "", "VR", "VR"]
 
     assert _query(runner, "band", "--detector-number", "4", "--band", "nope") == []

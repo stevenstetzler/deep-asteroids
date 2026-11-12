@@ -23,7 +23,8 @@ def query(ctx):
 @click.option("--field", "fields_", multiple=True, type=str, help="deep-db field name (repeatable)")
 @click.option("--detector-number", "detector_numbers", multiple=True, type=int)
 @click.option("--band", "bands", multiple=True, type=str,
-              help="Only rows with this band (repeatable); '' selects the undefined-band (band=NULL) rows")
+              help="Only rows with this band (repeatable); '' or 'none' selects the undefined-band "
+                   "(band=NULL) rows")
 @click.option("--header/--no-header", default=False, help="Print the field names first")
 @click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
 @click.pass_context
@@ -49,9 +50,10 @@ def searches(ctx, fields, nights, fields_, detector_numbers, bands, header, outp
         if values:
             q = q.where(columns[column].in_(values))
     if bands:
-        named = [b for b in bands if b != ""]
+        null_sentinels = {"", "none"}
+        named = [b for b in bands if b not in null_sentinels]
         conditions = ([columns["band"].in_(named)] if named else []) + (
-            [columns["band"].is_(None)] if "" in bands else [])
+            [columns["band"].is_(None)] if set(bands) & null_sentinels else [])
         q = q.where(or_(*conditions))
     q = q.order_by(columns["id"])
 
