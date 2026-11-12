@@ -66,11 +66,12 @@ only to compensate for deep-db access; `known_tracklet` is already fit.
 
 **D1. Salad's timestamps are 32.184 s early.** Salad's result times are
 TAI-labelled but true TAI is 32.184 s later (see the README note).
-Crossmatching them against deep-db tracklets without correcting would
-put every candidate along-track by the 32.184 s offset plus the 37 s
-UTC-to-TAI step that a naive comparison also applies, 69.184 s in all:
-~0.7" for a 0.26 deg/day mover, which is not small against a 2" known
-radius.
+Evaluating a result tracklet at "exposure midpoint converted UTC to TAI"
+(what a naive crossmatch does, and what salad's did) puts it 69.184 s
+(the 37 s UTC-to-TAI step plus the 32.184 s error) from where the object
+actually was: ~0.7" for a 0.26 deg/day mover, not small against a 2"
+known radius. The correct time for a salad result at an exposure is the
+UTC midpoint minus 32.184 s.
 - *Option A (proposed):* keep values verbatim (the #13 policy) and add a
   small `results_ingest` provenance table, one row per run_id: source
   database, ingest time, `time_offset_seconds` (32.184 for salad, 0 for
