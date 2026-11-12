@@ -8,8 +8,9 @@ shift-and-stack searches over the DECam Ecliptic Exploration Project
 source of survey geometry, MPC observations, mpchecker ephemerides and
 synthetic (fake) objects.
 
-> Status: phase 1. Known-object tracklets are ingested from deep-db.
-> Ingesting search definitions comes next.
+> Status: phase 1. Known-object tracklets and search definitions are
+> ingested from deep-db. Images (linking exposures to Butler dataset
+> paths) come next.
 
 ## Installation
 
@@ -99,8 +100,39 @@ Commands:
     on a networked filesystem.
 - `deep-asteroids database fetch-deep-db` downloads deep-db, or confirms
   the cached copy is up to date.
-- `deep-asteroids ingest tracklets` and `deep-asteroids query tracklets`:
-  see below.
+- `deep-asteroids ingest searches`/`ingest tracklets` and
+  `deep-asteroids query searches`/`query tracklets`: see below.
+
+## Search definitions
+
+```bash
+deep-asteroids ingest searches [--night N ...] [--force]
+```
+
+One `search_definition` row per `(night, field, detector)` triple deep-db
+knows about -- one CCD of one pointing group over one night, the unit
+find-asteroids searches. This ingests **every** triple; filtering by
+band, science field or minimum exposure count is deferred to the search
+stage, so `band`/`n_exposures` are recorded for all of them, not just the
+ones that'll eventually be searched. `run_id` is find-asteroids' own
+convention, `<field>-ccd<detector_number>-<night>` (e.g.
+`A0b-ccd04-20190402`).
+
+Each search's exposures (`search_definition_exposure`) keep the time
+baseline (`midpoint_mjd`) and chip footprint corners, copied from deep-db,
+for later image-selection/photometry box tests to read. Exposures with no
+field (`exposure.field_id IS NULL`, 9 survey-wide) form no pointing group
+and are skipped.
+
+Re-running skips nights already ingested; `--force` replaces them. The
+full ingest takes well under a minute against the published deep-db,
+writing about 21,600 searches across 552k exposure-detector rows.
+
+```bash
+deep-asteroids query searches [FIELDS ...] [--night N] [--field F] [--detector-number D] [--band B] [--header] [--output FILE]
+```
+
+Same `|`-separated style as `query tracklets`.
 
 ## Known-object tracklets
 
