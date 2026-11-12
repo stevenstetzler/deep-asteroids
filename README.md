@@ -8,9 +8,9 @@ shift-and-stack searches over the DECam Ecliptic Exploration Project
 source of survey geometry, MPC observations, mpchecker ephemerides and
 synthetic (fake) objects.
 
-> Status: phase 1. Known-object tracklets and search definitions are
-> ingested from deep-db. Images (linking exposures to Butler dataset
-> paths) come next.
+> Status: phase 1. Known-object tracklets, search definitions, and
+> images (linking exposures to Butler dataset paths) are ingested. A
+> vendored cutout/photometry engine comes next.
 
 ## Installation
 
@@ -148,8 +148,49 @@ deep-asteroids query searches [FIELDS ...] [--night N] [--field F] [--detector-n
 
 `--band ''`/`--band none` (same convention as `query tracklets --flag
 none`) selects the undefined-band (`band = NULL`) rows -- the ones
-spanning every band of their triple.
-Same `|`-separated style as `query tracklets`.
+spanning every band of their triple. Same `|`-separated style as
+`query tracklets`.
+
+## Images
+
+```bash
+deep-asteroids ingest images --registry-uri URL --repo-dir DIR --product-type differenceExp [--night N ...] [--field F ...] [--force]
+```
+
+Links deep-db detector-exposures to Butler dataset paths, one row per
+`(detector-exposure, product type)`: `--registry-uri` is the Butler
+repo's registry database URL (e.g.
+`postgresql://user:pass@epyc.astro.washington.edu/deep_klone_2`, with
+read-only credentials at `/gscratch/dirac/DEEP/data/credentials`) and
+`--repo-dir` is the repo root its paths are relative to (e.g.
+`/gscratch/dirac/DEEP/repo`) -- joined together to make a directly-
+openable URI.
+
+**Always scoped per `(night, field)` pointing group**, one registry
+query per group (from deep-db's own list, optionally narrowed by
+`--night`/`--field`), not run as one global query across the whole
+survey: the real registry has thousands of RUN collections from
+repeated reprocessing (526,900 distinct `(visit, detector)` pairs for
+`differenceExp` alone, across 16M+ tagged rows), so a duplicate
+`(visit, detector)` pair is only resolved correctly within one pointing
+group's own collection-chain precedence (`DEEP/<night>/<field>`'s
+CHAINED collection) -- a global "lowest dataset.id" tie-break would
+silently pick an arbitrary reprocessing run's image instead.
+
+Verified against the real registry (`psql -h epyc.astro.washington.edu
+deep_klone_2`): night `20190402`/field `A0b` gives exactly 60 searchable
+CCDs (CCD 2 excluded, matching #7's validation target) across its 103
+exposures; the full survey ingest takes about 90 s and writes ~472k
+images across 349 pointing groups.
+
+Needs `psycopg2-binary` (a direct dependency) for the Postgres registry;
+no extra `LD_LIBRARY_PATH`/module setup required.
+
+```bash
+deep-asteroids query images [FIELDS ...] [--night N] [--field F] [--detector-number D] [--product-type P] [--header] [--output FILE]
+```
+
+Same `|`-separated style as `query searches`/`query tracklets`.
 
 ## Known-object tracklets
 

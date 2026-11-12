@@ -18,6 +18,7 @@ dependencies = [
     "astropy",
     "click",
     "numpy",
+    "psycopg2-binary",
     "sqlalchemy>=2",
     "find-asteroids @ git+https://github.com/stevenstetzler/find-asteroids@bcbab550fe93a15acd20092815683d9a5a16ce78",
     "deep-db @ git+https://github.com/stevenstetzler/deep-db@36a212d0440307064ad5959b4fc9a6b5f36d681f",

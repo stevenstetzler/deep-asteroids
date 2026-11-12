@@ -5,6 +5,7 @@ from deep_asteroids.cli import main
 DEFAULT_SEARCH_FIELDS = (
     "night", "field", "detector_number", "run_id", "band", "n_exposures", "t_start_mjd", "t_end_mjd",
 )
+DEFAULT_IMAGE_FIELDS = ("night", "field", "detector_number", "expnum", "product_type", "uri")
 DEFAULT_TRACKLET_FIELDS = (
     "source", "night", "component", "orbit_id", "trkid", "provid",
     "epoch", "ra_epoch", "dec_epoch", "vra", "vdec", "n_points", "max_residual_arcsec", "flag",
@@ -55,6 +56,46 @@ def searches(ctx, fields, nights, fields_, detector_numbers, bands, header, outp
         conditions = ([columns["band"].in_(named)] if named else []) + (
             [columns["band"].is_(None)] if set(bands) & null_sentinels else [])
         q = q.where(or_(*conditions))
+    q = q.order_by(columns["id"])
+
+    with click.open_file(output or "-", "w") as out, Session(get_db()) as session:
+        if header:
+            out.write("|".join(fields) + "\n")
+        for row in session.execute(q):
+            out.write("|".join("" if v is None else str(v) for v in row) + "\n")
+
+
+@query.command()
+@click.argument("fields", nargs=-1, type=str)
+@click.option("--night", "nights", multiple=True, type=int)
+@click.option("--field", "fields_", multiple=True, type=str, help="deep-db field name (repeatable)")
+@click.option("--detector-number", "detector_numbers", multiple=True, type=int)
+@click.option("--product-type", "product_types", multiple=True, type=str)
+@click.option("--header/--no-header", default=False, help="Print the field names first")
+@click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
+@click.pass_context
+def images(ctx, fields, nights, fields_, detector_numbers, product_types, header, output):
+    """Print image rows, '|'-separated (deep-db's query style).
+
+    FIELDS are image column names (default: a summary set)."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import get_db
+    from deep_asteroids.database.images import Image
+
+    fields = fields or DEFAULT_IMAGE_FIELDS
+    columns = Image.__table__.columns
+    unknown = [f for f in fields if f not in columns]
+    if unknown:
+        raise click.BadParameter(f"unknown field(s) {unknown}; choose from {list(columns.keys())}",
+                                 param_hint="FIELDS")
+
+    q = select(*(columns[f] for f in fields))
+    for column, values in (("night", nights), ("field", fields_), ("detector_number", detector_numbers),
+                           ("product_type", product_types)):
+        if values:
+            q = q.where(columns[column].in_(values))
     q = q.order_by(columns["id"])
 
     with click.open_file(output or "-", "w") as out, Session(get_db()) as session:

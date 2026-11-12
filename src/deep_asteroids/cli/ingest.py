@@ -39,6 +39,38 @@ def searches(ctx, nights, force):
 
 
 @ingest.command()
+@click.option("--registry-uri", required=True, help="The Butler repo's registry database URL")
+@click.option("--repo-dir", required=True, type=click.Path(file_okay=False),
+              help="The Butler repo root the registry's paths are relative to")
+@click.option("--product-type", "product_types", multiple=True, required=True,
+              help="A Butler dataset type to ingest (repeatable), e.g. differenceExp")
+@click.option("--night", "nights", multiple=True, type=int, help="Only these deep-db nights (repeatable)")
+@click.option("--field", "fields_", multiple=True, type=str, help="Only these deep-db fields (repeatable)")
+@click.option("--force", is_flag=True, help="Replace (night, field) groups that already exist")
+@click.pass_context
+def images(ctx, registry_uri, repo_dir, product_types, nights, fields_, force):
+    """Link deep-db detector-exposures to Butler dataset paths, one row per
+    (detector-exposure, product type).
+
+    Scoped per (night, field) pointing group -- the real registry has
+    thousands of RUN collections from reprocessing, so duplicate
+    (visit, detector) rows are only resolved correctly within one
+    pointing group's own collection-chain precedence. Re-running skips
+    (night, field) groups already ingested unless --force."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import create_db, deep_db_sha, get_deep_db
+    from deep_asteroids.ingest.images import ingest_images
+
+    with Session(create_db()) as session:
+        summary = ingest_images(
+            session, get_deep_db(), registry_uri, repo_dir, product_types,
+            nights=list(nights) or None, fields=list(fields_) or None, force=force, deep_db_sha=deep_db_sha(),
+        )
+    click.echo(summary.format())
+
+
+@ingest.command()
 @click.argument("sources", nargs=-1, type=click.Choice(sorted(TRACKLET_SOURCES)))
 @click.option("--night", "nights", multiple=True, type=int, help="Only these deep-db nights (repeatable)")
 @click.option("--force", is_flag=True, help="Replace (source, night) rows that already exist")
