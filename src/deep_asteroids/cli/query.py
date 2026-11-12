@@ -22,7 +22,8 @@ def query(ctx):
 @click.option("--night", "nights", multiple=True, type=int)
 @click.option("--field", "fields_", multiple=True, type=str, help="deep-db field name (repeatable)")
 @click.option("--detector-number", "detector_numbers", multiple=True, type=int)
-@click.option("--band", "bands", multiple=True, type=str)
+@click.option("--band", "bands", multiple=True, type=str,
+              help="Only rows with this band (repeatable); '' selects the undefined-band (band=NULL) rows")
 @click.option("--header/--no-header", default=False, help="Print the field names first")
 @click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
 @click.pass_context
@@ -30,7 +31,7 @@ def searches(ctx, fields, nights, fields_, detector_numbers, bands, header, outp
     """Print search_definition rows, '|'-separated (deep-db's query style).
 
     FIELDS are search_definition column names (default: a summary set)."""
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
     from sqlalchemy.orm import Session
 
     from deep_asteroids.database import get_db
@@ -44,10 +45,14 @@ def searches(ctx, fields, nights, fields_, detector_numbers, bands, header, outp
                                  param_hint="FIELDS")
 
     q = select(*(columns[f] for f in fields))
-    for column, values in (("night", nights), ("field", fields_), ("detector_number", detector_numbers),
-                           ("band", bands)):
+    for column, values in (("night", nights), ("field", fields_), ("detector_number", detector_numbers)):
         if values:
             q = q.where(columns[column].in_(values))
+    if bands:
+        named = [b for b in bands if b != ""]
+        conditions = ([columns["band"].in_(named)] if named else []) + (
+            [columns["band"].is_(None)] if "" in bands else [])
+        q = q.where(or_(*conditions))
     q = q.order_by(columns["id"])
 
     with click.open_file(output or "-", "w") as out, Session(get_db()) as session:
