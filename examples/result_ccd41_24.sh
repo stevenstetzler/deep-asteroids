@@ -5,23 +5,33 @@
 # search of night 20190402, field A0b, CCD 41.
 #
 # Ingests that night's search definitions, its images, and salad's
-# results for it, then measures and renders the result. Output images
-# are stored in docs/examples/results/20190402_ccd41_result24/.
+# results for it, then measures and renders the result. The same script
+# works for another result by overriding any of:
+#
+#   NIGHT=20190403 FIELD=A0c DETECTOR=10 RESULT_NUM=3 ./result_ccd41_24.sh
+#
+# (the find-asteroids run_id is deep-decam-<FIELD>-ccd<DETECTOR>-<NIGHT>;
+# override RUN_ID for a differently named one). Output images are stored
+# in docs/examples/viz/result_<NIGHT>_ccd<DETECTOR>_<RESULT_NUM>/ unless
+# $OUT_DIR says otherwise.
 #
 # $RESULTS_DB is the find-asteroids results database to copy from
 # (default: salad's Postgres on localhost:55432 -- start it first). The
 # default URL names $USER explicitly: the registry credentials this
 # needs export PGUSER=deep_readonly, which libpq would otherwise apply to
-# a URL without a user.
+# a URL without a user. $TIME_OFFSET_SECONDS (default 32.184, salad's
+# timestamp offset) is 0 for results that don't come from salad.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./common.sh
 
-NIGHT=20190402
-FIELD=A0b
-RUN_ID=deep-decam-A0b-ccd41-20190402
-RESULT_NUM=24
+: "${NIGHT:=20190402}"
+: "${FIELD:=A0b}"
+: "${DETECTOR:=41}"
+: "${RESULT_NUM:=24}"
+: "${RUN_ID:=deep-decam-${FIELD}-ccd${DETECTOR}-${NIGHT}}"
 : "${RESULTS_DB:=postgresql://${USER}@localhost:55432/salad}"
+: "${TIME_OFFSET_SECONDS:=32.184}"
 
 deep-asteroids ingest searches --night "$NIGHT"
 deep-asteroids ingest images \
@@ -30,4 +40,5 @@ deep-asteroids ingest images \
 deep-asteroids ingest results --results-db "$RESULTS_DB" --run-id "$RUN_ID"
 
 python viz_result.py "$RUN_ID" "$RESULT_NUM" \
-    "${OUT_DIR:-../docs/examples/results/20190402_ccd41_result24}" --annotate "$ANNOTATE"
+    "${OUT_DIR:-../docs/examples/viz/result_${NIGHT}_ccd${DETECTOR}_${RESULT_NUM}}" \
+    --annotate "$ANNOTATE" --time-offset-seconds "$TIME_OFFSET_SECONDS"
