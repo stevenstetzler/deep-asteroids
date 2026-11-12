@@ -16,7 +16,6 @@ detector) triple to group them into, not a science-field filtering choice.
 Ingest is idempotent per night: a night that already has rows is skipped,
 unless ``force``, which deletes and re-inserts it.
 """
-import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,8 +24,6 @@ from itertools import groupby
 from sqlalchemy import delete, insert, select, text
 
 from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure
-
-log = logging.getLogger(__name__)
 
 SEARCH_POINTS = """
 SELECT n.night, f.name, d.number, d.name,
@@ -159,5 +156,4 @@ def ingest_searches(session, deep_engine, nights=None, force=False, deep_db_sha=
     session.commit()
 
     summary.n_searches = len(rows)
-    log.info("%s", summary.format())
     return summary
