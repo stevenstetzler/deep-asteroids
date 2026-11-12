@@ -2,21 +2,33 @@
 Ingest search definitions from deep-db into ``search_definition`` /
 ``search_definition_exposure``.
 
-One row per `(night, field, detector)` triple deep-db knows about -- one
-CCD of one pointing group over one night, the unit find-asteroids searches.
-Filtering by band, science field or minimum exposure count is deferred to
-the search stage (migration decision 3): every triple gets a row here,
-recording `band`/`n_exposures` so that filtering is a later query, not an
-ingest-time decision.
+One or more rows per `(night, field, detector)` triple deep-db knows
+about -- one CCD of one pointing group over one night, the unit
+find-asteroids searches. Science-field and minimum-exposure filtering is
+still deferred to the search stage (migration decision 3), but **band is
+part of the grouping itself**, not just a descriptive column:
+
+- one row per distinct band actually present among the triple's
+  exposures (`band` set, `n_exposures`/the footprint rows scoped to that
+  band alone), and
+- always, in addition, one row with `band = NULL` spanning *every*
+  exposure of the triple regardless of band -- the "undefined-band"
+  search. For a triple whose exposures are all one band, this duplicates
+  the single per-band row's exposures; for a mixed triple, it's the
+  union of all of them.
+
+This means a later `--band VR` search and a later "search everything
+together" need no runtime re-grouping: both are already materialized.
 
 Exposures with no field (`exposure.field_id IS NULL`, a handful survey-
 wide) form no pointing group and are skipped -- there's no (night, field,
 detector) triple to group them into, not a science-field filtering choice.
+An exposure with no band (none exist in the published deep-db today) only
+ever lands in the undefined-band row, never a per-band one.
 
 Ingest is idempotent per night: a night that already has rows is skipped,
 unless ``force``, which deletes and re-inserts it.
 """
-from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import groupby
@@ -43,9 +55,10 @@ ORDER BY n.night, f.name, d.number, e.midpoint_mjd
 class SearchSummary:
     nights: list = field(default_factory=list)
     skipped_nights: list = field(default_factory=list)
+    n_triples: int = 0
+    n_multi_band_triples: int = 0
     n_searches: int = 0
     n_exposures: int = 0
-    n_mixed_band: int = 0
 
     def format(self):
         header = (
@@ -54,9 +67,13 @@ class SearchSummary:
         )
         lines = [header]
         if self.nights:
-            lines.append(f"  {self.n_searches:,} search(es), {self.n_exposures:,} exposure-detector row(s)")
-            if self.n_mixed_band:
-                lines.append(f"  {self.n_mixed_band:,} search(es) mix more than one band (band = the most common)")
+            lines.append(
+                f"  {self.n_triples:,} (night, field, detector) triple(s) -> {self.n_searches:,} search(es) "
+                "(one per band present, plus one spanning every band)"
+            )
+            lines.append(f"  {self.n_exposures:,} exposure-detector row(s) written (counted once per search)")
+            if self.n_multi_band_triples:
+                lines.append(f"  {self.n_multi_band_triples:,} triple(s) mix more than one band")
         return "\n".join(lines)
 
 
@@ -64,12 +81,16 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _run_id(field_name, detector_number, night):
-    """find-asteroids' own ``Search.run_id`` convention -- matches salad's
+def _run_id(field_name, detector_number, night, band=None):
+    """find-asteroids' own ``Search.run_id`` convention for the
+    undefined-band search (``band=None``) -- matches salad's
     ``DeepDecamPointingGroupStrategy.run_id_for()`` exactly (verified
     against its real ``search_task.run_id`` rows: ``deep-decam-<field>-ccd
-    <detector_number>-<night>``, detector_number **not** zero-padded)."""
-    return f"deep-decam-{field_name}-ccd{detector_number}-{night}"
+    <detector_number>-<night>``, detector_number **not** zero-padded).
+    A per-band search (salad has no equivalent -- it never splits a
+    run_id by band) appends ``-<band>``."""
+    base = f"deep-decam-{field_name}-ccd{detector_number}-{night}"
+    return base if band is None else f"{base}-{band}"
 
 
 def deep_db_nights(deep_engine):
@@ -77,12 +98,27 @@ def deep_db_nights(deep_engine):
         return sorted(r[0] for r in conn.execute(text("SELECT night FROM night WHERE night IS NOT NULL")))
 
 
+def _exposure_dicts(rows_):
+    return [
+        {
+            "deep_db_exposure_id": int(r[4]), "deep_db_detector_exposure_id": int(r[5]),
+            "expnum": int(r[6]), "midpoint_mjd": r[8],
+            "ra_00": r[9], "dec_00": r[10], "ra_01": r[11], "dec_01": r[12],
+            "ra_10": r[13], "dec_10": r[14], "ra_11": r[15], "dec_11": r[16],
+        }
+        for r in rows_
+    ]
+
+
 def search_rows(deep_engine, nights=None):
-    """``(search_rows, exposure_rows, n_mixed_band)`` for ``nights`` (every
-    night with pointing geometry, if ``None``): one `search_definition` dict
-    per `(night, field, detector)` and the `search_definition_exposure`
-    dicts for it (each missing ``search_definition_id``, filled in once the
-    parent row's id is known)."""
+    """``(search_rows, n_triples, n_multi_band_triples)`` for ``nights``
+    (every night with pointing geometry, if ``None``): one
+    `search_definition` dict per band present in a `(night, field,
+    detector)` triple, plus one more with ``band=None`` spanning every
+    exposure of the triple -- see this module's docstring. Each dict's
+    ``_exposures`` are its `search_definition_exposure` dicts (missing
+    ``search_definition_id``, filled in once the parent row's id is
+    known)."""
     clause = "" if nights is None else "AND n.night IN :nights"
     query = text(SEARCH_POINTS.format(nights=clause))
     params = {}
@@ -95,31 +131,32 @@ def search_rows(deep_engine, nights=None):
     with deep_engine.connect() as conn:
         points = conn.execute(query, params).fetchall()
 
-    search_rows_, n_mixed_band = [], 0
+    def make_row(field_name, detector_number, detector_name, night, band, rows_):
+        mjds = [r[8] for r in rows_]
+        return {
+            "night": night, "field": field_name, "detector_number": detector_number,
+            "detector_name": detector_name, "run_id": _run_id(field_name, detector_number, night, band),
+            "band": band, "n_exposures": len(rows_), "t_start_mjd": min(mjds), "t_end_mjd": max(mjds),
+            "_exposures": _exposure_dicts(rows_),
+        }
+
+    search_rows_, n_triples, n_multi_band_triples = [], 0, 0
     for (night, field_name, detector_number, detector_name), group in groupby(
         points, key=lambda r: (r[0], r[1], r[2], r[3])
     ):
         group = list(group)
-        bands = Counter(r[7] for r in group if r[7] is not None)
-        band = max(sorted(bands), key=lambda b: bands[b]) if bands else None
-        if len(bands) > 1:
-            n_mixed_band += 1
-        mjds = [r[8] for r in group]
-        search_rows_.append({
-            "night": night, "field": field_name, "detector_number": detector_number,
-            "detector_name": detector_name, "run_id": _run_id(field_name, detector_number, night),
-            "band": band, "n_exposures": len(group), "t_start_mjd": min(mjds), "t_end_mjd": max(mjds),
-            "_exposures": [
-                {
-                    "deep_db_exposure_id": int(r[4]), "deep_db_detector_exposure_id": int(r[5]),
-                    "expnum": int(r[6]), "midpoint_mjd": r[8],
-                    "ra_00": r[9], "dec_00": r[10], "ra_01": r[11], "dec_01": r[12],
-                    "ra_10": r[13], "dec_10": r[14], "ra_11": r[15], "dec_11": r[16],
-                }
-                for r in group
-            ],
-        })
-    return search_rows_, n_mixed_band
+        n_triples += 1
+        by_band = {}
+        for r in group:
+            if r[7] is not None:
+                by_band.setdefault(r[7], []).append(r)
+        if len(by_band) > 1:
+            n_multi_band_triples += 1
+
+        for band in sorted(by_band):
+            search_rows_.append(make_row(field_name, detector_number, detector_name, night, band, by_band[band]))
+        search_rows_.append(make_row(field_name, detector_number, detector_name, night, None, group))
+    return search_rows_, n_triples, n_multi_band_triples
 
 
 def ingest_searches(session, deep_engine, nights=None, force=False, deep_db_sha=None):
@@ -145,7 +182,7 @@ def ingest_searches(session, deep_engine, nights=None, force=False, deep_db_sha=
         session.commit()
         return summary
 
-    rows, summary.n_mixed_band = search_rows(deep_engine, nights=todo)
+    rows, summary.n_triples, summary.n_multi_band_triples = search_rows(deep_engine, nights=todo)
     created_at = _now()
     for row in rows:
         exposures = row.pop("_exposures")

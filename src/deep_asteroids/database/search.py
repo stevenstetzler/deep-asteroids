@@ -1,7 +1,8 @@
 """
 Search definitions: one `(night, field, detector)` triple -- one CCD of
 one pointing group over one night -- is "one search" in find-asteroids
-terms. See ``ingest/searches.py``.
+terms, materialized once per band present plus one spanning every band.
+See ``ingest/searches.py``.
 """
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
@@ -11,25 +12,34 @@ from deep_asteroids.database.models import Base
 
 class SearchDefinition(Base):
     """One `(night, field, detector)` triple deep-db knows about, independent
-    of whether it's actually worth searching -- band/science-field/
-    minimum-exposure filtering is deferred to the search stage (so this
-    table records every triple, not just the ones that'll be searched).
+    of whether it's actually worth searching -- science-field/minimum-
+    exposure filtering is deferred to the search stage.
 
-    `run_id` is find-asteroids' own `Search.run_id` convention, matching
-    salad's `DeepDecamPointingGroupStrategy.run_id_for()` exactly:
+    **Band is part of the grouping, not just a descriptive column.** Each
+    triple gets one row per band actually present among its exposures
+    (`band` set, scoped to that band's own exposures), plus always one
+    more row with `band = NULL` spanning *every* exposure of the triple
+    regardless of band -- the natural key is `(night, field,
+    detector_number, band)`. A triple with a single band therefore gets
+    exactly two rows (the band and the duplicate `NULL` one); a triple
+    that mixes bands (mostly junk/placeholder fields, e.g. ``--``) gets
+    one row per band plus the `NULL` union -- see ``SearchSummary``'s
+    `n_multi_band_triples` for how many an ingest run saw.
+
+    `run_id` is find-asteroids' own `Search.run_id` convention for the
+    `band = NULL` row, matching salad's
+    `DeepDecamPointingGroupStrategy.run_id_for()` exactly:
     `deep-decam-<field>-ccd<detector_number>-<night>` (e.g.
     ``deep-decam-A0b-ccd4-20190402`` -- detector_number is *not*
-    zero-padded).
-
-    `band` is the most common `exposure.band` among the triple's exposures
-    (ties broken alphabetically). A handful of triples mix bands within one
-    night/field/CCD (mostly junk/placeholder fields, e.g. ``--``) -- see
-    ``SourceSummary.n_mixed_band`` for how many an ingest run saw.
+    zero-padded). A per-band row (salad has no equivalent) appends
+    `-<band>`.
     """
 
     __tablename__ = "search_definition"
     __table_args__ = (
-        UniqueConstraint("night", "field", "detector_number", name="uq_search_definition_night_field_detector"),
+        UniqueConstraint(
+            "night", "field", "detector_number", "band", name="uq_search_definition_night_field_detector_band",
+        ),
         Index("ix_search_definition_night_field", "night", "field"),
     )
 

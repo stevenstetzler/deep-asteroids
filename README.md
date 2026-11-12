@@ -109,15 +109,26 @@ Commands:
 deep-asteroids ingest searches [--night N ...] [--force]
 ```
 
-One `search_definition` row per `(night, field, detector)` triple deep-db
-knows about -- one CCD of one pointing group over one night, the unit
-find-asteroids searches. This ingests **every** triple; filtering by
-band, science field or minimum exposure count is deferred to the search
-stage, so `band`/`n_exposures` are recorded for all of them, not just the
-ones that'll eventually be searched. `run_id` matches salad's own
-`deep-decam-<field>-ccd<detector_number>-<night>` convention (e.g.
+One or more `search_definition` rows per `(night, field, detector)`
+triple deep-db knows about -- one CCD of one pointing group over one
+night, the unit find-asteroids searches. This ingests **every** triple;
+science-field/minimum-exposure filtering is deferred to the search stage.
+
+**Band is part of the grouping, not just a descriptive column**: each
+triple gets one row per band actually present among its exposures
+(`band` set, scoped to just that band's exposures), plus always one more
+row with `band = NULL` spanning *every* exposure of the triple regardless
+of band. A single-band triple therefore gets two rows (the band, and the
+duplicate `NULL` union); a triple that mixes bands gets one row per band
+plus the `NULL` union. This way neither a later single-band search nor a
+later "search everything together" needs runtime re-grouping -- both are
+already materialized.
+
+`run_id` matches salad's own `deep-decam-<field>-ccd<detector_number>-
+<night>` convention for the `band = NULL` row (e.g.
 `deep-decam-A0b-ccd4-20190402` -- not zero-padded; verified against
-salad's real `search_task.run_id` rows).
+salad's real `search_task.run_id` rows); a per-band row (salad has no
+equivalent) appends `-<band>`.
 
 Each search's exposures (`search_definition_exposure`) keep the time
 baseline (`midpoint_mjd`) and chip footprint corners, copied from deep-db,
@@ -127,7 +138,9 @@ and are skipped.
 
 Re-running skips nights already ingested; `--force` replaces them. The
 full ingest takes well under a minute against the published deep-db,
-writing about 21,600 searches across 552k exposure-detector rows.
+writing about 43,600 searches (from 21,638 triples, 310 of which mix
+bands) across 1.1M exposure-detector rows (each exposure counted once
+per search it belongs to).
 
 ```bash
 deep-asteroids query searches [FIELDS ...] [--night N] [--field F] [--detector-number D] [--band B] [--header] [--output FILE]
