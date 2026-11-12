@@ -75,6 +75,7 @@ def import_models():
     """Import every module that declares deep-asteroids tables, registering
     them on ``Base.metadata`` (find-asteroids' tables come with ``models``)."""
     import deep_asteroids.database.models
+    import deep_asteroids.database.search
     import deep_asteroids.database.tracklets  # noqa: F401
 
 

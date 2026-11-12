@@ -8,8 +8,9 @@ shift-and-stack searches over the DECam Ecliptic Exploration Project
 source of survey geometry, MPC observations, mpchecker ephemerides and
 synthetic (fake) objects.
 
-> Status: phase 1. Known-object tracklets are ingested from deep-db.
-> Ingesting search definitions comes next.
+> Status: phase 1. Known-object tracklets and search definitions are
+> ingested from deep-db. Images (linking exposures to Butler dataset
+> paths) come next.
 
 ## Installation
 
@@ -99,8 +100,56 @@ Commands:
     on a networked filesystem.
 - `deep-asteroids database fetch-deep-db` downloads deep-db, or confirms
   the cached copy is up to date.
-- `deep-asteroids ingest tracklets` and `deep-asteroids query tracklets`:
-  see below.
+- `deep-asteroids ingest searches`/`ingest tracklets` and
+  `deep-asteroids query searches`/`query tracklets`: see below.
+
+## Search definitions
+
+```bash
+deep-asteroids ingest searches [--night N ...] [--force]
+```
+
+One or more `search_definition` rows per `(night, field, detector)`
+triple deep-db knows about -- one CCD of one pointing group over one
+night, the unit find-asteroids searches. This ingests **every** triple;
+science-field/minimum-exposure filtering is deferred to the search stage.
+
+**Band is part of the grouping, not just a descriptive column**: each
+triple gets one row per band actually present among its exposures
+(`band` set, scoped to just that band's exposures), plus always one more
+row with `band = NULL` spanning *every* exposure of the triple regardless
+of band. A single-band triple therefore gets two rows (the band, and the
+duplicate `NULL` union); a triple that mixes bands gets one row per band
+plus the `NULL` union. This way neither a later single-band search nor a
+later "search everything together" needs runtime re-grouping -- both are
+already materialized.
+
+`run_id` matches salad's own `deep-decam-<field>-ccd<detector_number>-
+<night>` convention for the `band = NULL` row (e.g.
+`deep-decam-A0b-ccd4-20190402` -- not zero-padded; verified against
+salad's real `search_task.run_id` rows); a per-band row (salad has no
+equivalent) appends `-<band>`.
+
+Each search's exposures (`search_definition_exposure`) keep the time
+baseline (`midpoint_mjd`) and chip footprint corners, copied from deep-db,
+for later image-selection/photometry box tests to read. Exposures with no
+field (`exposure.field_id IS NULL`, 9 survey-wide) form no pointing group
+and are skipped.
+
+Re-running skips nights already ingested; `--force` replaces them. The
+full ingest takes well under a minute against the published deep-db,
+writing about 43,600 searches (from 21,638 triples, 310 of which mix
+bands) across 1.1M exposure-detector rows (each exposure counted once
+per search it belongs to).
+
+```bash
+deep-asteroids query searches [FIELDS ...] [--night N] [--field F] [--detector-number D] [--band B|''|none] [--header] [--output FILE]
+```
+
+`--band ''`/`--band none` (same convention as `query tracklets --flag
+none`) selects the undefined-band (`band = NULL`) rows -- the ones
+spanning every band of their triple.
+Same `|`-separated style as `query tracklets`.
 
 ## Known-object tracklets
 

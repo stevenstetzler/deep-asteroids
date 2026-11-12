@@ -422,5 +422,4 @@ def ingest_source(session, deep_engine, source, nights=None, force=False, deep_d
         p = _percentiles([np.nan if v is None else v for v in values])
         if p:
             summary.residual_percentiles[kind] = p
-    log.info("%s", summary.format())
     return summary

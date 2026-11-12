@@ -17,6 +17,28 @@ def ingest(ctx):
 
 
 @ingest.command()
+@click.option("--night", "nights", multiple=True, type=int, help="Only these deep-db nights (repeatable)")
+@click.option("--force", is_flag=True, help="Replace nights that already exist")
+@click.pass_context
+def searches(ctx, nights, force):
+    """Ingest one search_definition row per (night, field, detector) deep-db knows.
+
+    Band/science-field/minimum-exposure filtering is deferred to the
+    search stage; this ingests every triple. Re-running skips nights
+    already ingested unless --force."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import create_db, deep_db_sha, get_deep_db
+    from deep_asteroids.ingest.searches import ingest_searches
+
+    with Session(create_db()) as session:
+        summary = ingest_searches(
+            session, get_deep_db(), nights=list(nights) or None, force=force, deep_db_sha=deep_db_sha(),
+        )
+    click.echo(summary.format())
+
+
+@ingest.command()
 @click.argument("sources", nargs=-1, type=click.Choice(sorted(TRACKLET_SOURCES)))
 @click.option("--night", "nights", multiple=True, type=int, help="Only these deep-db nights (repeatable)")
 @click.option("--force", is_flag=True, help="Replace (source, night) rows that already exist")
