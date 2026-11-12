@@ -235,7 +235,7 @@ nothing behavioral.
 ```bash
 deep-asteroids viz tracklet --source {synthetic|mpc_observation|mpchecker} --night N \
     (--trkid T | --orbit-id O [--component C] | --provid P | --permid P) \
-    [--out-dir DIR] [--product-type P] [--cutout-size N]
+    [--out-dir DIR] [--product-type P] [--cutout-size N] [--annotate TEMPLATE]
 ```
 
 For one `known_tracklet` row -- or every component of a synthetic
@@ -251,6 +251,13 @@ cutout engine (above) already done. Default output directory:
 `./viz/<source>/<night>/<identity>/`; resolving more than one row (a
 binary) nests a subdirectory per component under an explicit `--out-dir`
 too, so components never overwrite each other's plots or cutouts.
+
+`--annotate` is a `str.format()` template (e.g. `'{night}/{field}/{expnum}'`)
+drawn in white at the top of every `movie.gif` frame -- fields:
+`night`, `field`, `expnum`, `mjd_tai`, `ra`, `dec`, `mag`. The font
+shrinks (and, failing that, the text is truncated with an ellipsis) to
+always fit within the frame's own width, however narrow `--cutout-size`
+makes it.
 
 Verified against issue #5's three published test cases, using the real
 Butler registry/repo and vendored engine end to end:

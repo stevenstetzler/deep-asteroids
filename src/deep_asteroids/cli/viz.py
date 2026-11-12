@@ -33,8 +33,13 @@ def _identity_slug(tracklet):
               help="Default: ./viz/<source>/<night>/<identity>/")
 @click.option("--product-type", default="differenceExp", show_default=True)
 @click.option("--cutout-size", type=int, default=51, show_default=True)
+@click.option("--annotate", type=str, default=None,
+              help="A str.format() template (e.g. '{night}/{field}/{expnum}') drawn in white at the top of "
+                   "each movie frame, shrunk/truncated to fit the frame width. Fields: night, field, expnum, "
+                   "mjd_tai, ra, dec, mag.")
 @click.pass_context
-def tracklet(ctx, source, night, trkid, orbit_id, component, provid, permid, out_dir, product_type, cutout_size):
+def tracklet(ctx, source, night, trkid, orbit_id, component, provid, permid, out_dir, product_type, cutout_size,
+            annotate):
     """Cutouts + forced photometry + light curve + coadd + movie for one
     known_tracklet row (or every component of a synthetic binary, if
     --component is omitted).
@@ -75,5 +80,5 @@ def tracklet(ctx, source, night, trkid, orbit_id, component, provid, permid, out
             else:
                 this_out_dir = base_out_dir / _identity_slug(t)
             summary = visualize_tracklet(session, deep_engine, engine, t, this_out_dir,
-                                         product_type=product_type, cutout_size=cutout_size)
+                                         product_type=product_type, cutout_size=cutout_size, annotate=annotate)
             click.echo(summary.format())

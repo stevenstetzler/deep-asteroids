@@ -77,6 +77,9 @@ class TrackletMeasurement:
     ra: float
     dec: float
     in_bounds: bool
+    night: int | None = None
+    field: str | None = None
+    expnum: int | None = None
     mag: float | None = None
     mag_err_lo: float | None = None
     mag_err_hi: float | None = None
@@ -207,8 +210,9 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
         )
         summary.measurements.append(TrackletMeasurement(
             deep_db_detector_exposure_id=detector_exposure_id, mjd_tai=mjd_tai, ra=ra, dec=dec,
-            in_bounds=record.in_bounds, mag=record.mag, mag_err_lo=record.mag_err_lo,
-            mag_err_hi=record.mag_err_hi, cutout_path=record.cutout_path,
+            in_bounds=record.in_bounds, night=image.night, field=image.field, expnum=image.expnum,
+            mag=record.mag, mag_err_lo=record.mag_err_lo, mag_err_hi=record.mag_err_hi,
+            cutout_path=record.cutout_path,
         ))
     # already chronological (points was pre-sorted above) -- re-asserted
     # explicitly so this invariant doesn't silently depend on that order
@@ -247,9 +251,10 @@ def render_light_curve_plot(summary, out_dir):
 
 
 def _cutout_stack(summary):
-    """[(mjd_tai, 2D array), ...], chronological, for every measurement
-    with a cutout that still exists on disk -- shared by
-    render_coadd_plot()/render_movie()."""
+    """[(TrackletMeasurement, 2D array), ...], chronological, for every
+    measurement with a cutout that still exists on disk -- shared by
+    render_coadd_plot()/render_movie() (the latter also needs each
+    measurement's own night/field/expnum, for --annotate)."""
     from pathlib import Path as _Path
 
     from astropy.io import fits
@@ -262,12 +267,12 @@ def _cutout_stack(summary):
             log.warning("cutout %s no longer exists, skipping", m.cutout_path)
             continue
         with fits.open(m.cutout_path) as hdul:
-            frames.append((m.mjd_tai, hdul["IMAGE"].data.astype(float)))
+            frames.append((m, hdul["IMAGE"].data.astype(float)))
     # measure_tracklet() already hands back measurements in mjd order, but
     # render_movie()'s frame order is exactly what a viewer judges "sorted
     # or not" by, so this doesn't trust that upstream invariant silently --
     # matches salad's own mpc_viz.py, which re-sorts here too.
-    frames.sort(key=lambda f: f[0])
+    frames.sort(key=lambda f: f[0].mjd_tai)
     return frames
 
 
@@ -318,13 +323,66 @@ def render_coadd_plot(summary, out_dir):
     return path
 
 
-def render_movie(summary, out_dir):
-    """``movie.gif``: one frame per cutout, chronological, shared
-    ZScale normalization, 4x nearest-neighbor upscale, 2 fps (matching
-    salad's mpc_viz.py). Returns the path, or ``None`` if there are no
-    cutouts."""
+_ANNOTATE_FIELDS = ("night", "field", "expnum", "mjd_tai", "ra", "dec", "mag")
+_ANNOTATE_SIDE_MARGIN = 6  # px, each side -- text never touches the frame edge
+_ANNOTATE_TOP_MARGIN = 4
+_ANNOTATE_MIN_FONT_SIZE = 10
+
+
+def _annotation_text(annotate, measurement):
+    """``annotate`` (a ``str.format()`` template over one measurement's own
+    night/field/expnum/mjd_tai/ra/dec/mag), rendered for one frame."""
+    fields = {name: getattr(measurement, name) for name in _ANNOTATE_FIELDS}
+    try:
+        return annotate.format(**fields)
+    except (KeyError, IndexError) as e:
+        raise ValueError(f"--annotate {annotate!r} uses an unknown field {e}; choose from {_ANNOTATE_FIELDS}") from e
+
+
+def _fit_annotation(draw, text, max_width, max_size, min_size=_ANNOTATE_MIN_FONT_SIZE):
+    """A ``(font, text)`` pair that's guaranteed to fit within
+    ``max_width`` pixels: shrinks the font first, then truncates ``text``
+    with an ellipsis if even ``min_size`` doesn't fit, then -- for a
+    frame too narrow for even one character at ``min_size`` (a small
+    ``--cutout-size``) -- keeps shrinking below ``min_size`` down to a
+    hard floor, returning no text at all if nothing fits even there."""
+    from PIL import ImageFont
+
+    if max_width <= 0:
+        return ImageFont.load_default(size=min_size), ""
+
+    max_size = max(max_size, min_size)
+    for size in range(max_size, min_size - 1, -1):
+        font = ImageFont.load_default(size=size)
+        if draw.textlength(text, font=font) <= max_width:
+            return font, text
+
+    font = ImageFont.load_default(size=min_size)
+    truncated = text
+    while len(truncated) > 1 and draw.textlength(truncated + "…", font=font) > max_width:
+        truncated = truncated[:-1]
+    if draw.textlength(truncated + "…", font=font) <= max_width:
+        return font, truncated + "…"
+
+    for size in range(min_size - 1, 3, -1):
+        font = ImageFont.load_default(size=size)
+        if draw.textlength("…", font=font) <= max_width:
+            return font, "…"
+    return ImageFont.load_default(size=4), ""
+
+
+def render_movie(summary, out_dir, annotate=None):
+    """``movie.gif``: one frame per cutout, chronological, shared ZScale
+    normalization, 4x nearest-neighbor upscale, 2 fps (matching salad's
+    mpc_viz.py). ``annotate``, if given, is a ``str.format()`` string
+    (e.g. ``"{night}/{field}/{expnum}"``) evaluated per frame against that
+    exposure's own night/field/expnum/mjd_tai/ra/dec/mag and drawn in
+    white at the top of the frame, shrunk (and, if necessary, truncated)
+    to fit the frame's own width. Returns the path, or ``None`` if there
+    are no cutouts."""
     import numpy as np
     from PIL import Image as PILImage
+    from PIL import ImageDraw
 
     frames = _cutout_stack(summary)
     if not frames:
@@ -338,11 +396,18 @@ def render_movie(summary, out_dir):
     span = max(vmax - vmin, 1e-12)
 
     pil_frames = []
-    for _, data in frames:
+    for measurement, data in frames:
         norm = np.clip((data - vmin) / span, 0.0, 1.0)
         gray = (np.flipud(norm) * 255).astype(np.uint8)  # match imshow(origin="lower")
         frame = PILImage.fromarray(gray, mode="L")
         frame = frame.resize((frame.width * _MOVIE_SCALE, frame.height * _MOVIE_SCALE), resample=PILImage.NEAREST)
+        if annotate:
+            text = _annotation_text(annotate, measurement)
+            draw = ImageDraw.Draw(frame)
+            max_width = frame.width - 2 * _ANNOTATE_SIDE_MARGIN
+            font, text = _fit_annotation(draw, text, max_width, max_size=frame.width // 10)
+            x = (frame.width - draw.textlength(text, font=font)) / 2
+            draw.text((x, _ANNOTATE_TOP_MARGIN), text, fill=255, font=font, stroke_width=1, stroke_fill=0)
         pil_frames.append(frame)
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -352,16 +417,19 @@ def render_movie(summary, out_dir):
 
 
 def visualize_tracklet(session, deep_engine, engine, tracklet, out_dir, product_type=DEFAULT_PRODUCT_TYPE,
-                       cutout_size=DEFAULT_CUTOUT_SIZE):
+                       cutout_size=DEFAULT_CUTOUT_SIZE, annotate=None):
     """Measure + render everything for one ``known_tracklet``: cutouts
     under ``out_dir``, plus ``light_curve.png``/``coadd.png``/``movie.gif``.
-    Returns the filled-in ``VizSummary``."""
+    ``annotate``, if given, is passed to ``render_movie()`` (see its own
+    docstring). Returns the filled-in ``VizSummary``."""
     out_dir = Path(out_dir)
     summary = measure_tracklet(session, deep_engine, engine, tracklet, product_type=product_type,
                                cutout_dir=str(out_dir), cutout_size=cutout_size)
-    for kind, render in (("light_curve", render_light_curve_plot), ("coadd", render_coadd_plot),
-                         ("movie", render_movie)):
-        path = render(summary, out_dir)
+    for kind, path in (
+        ("light_curve", render_light_curve_plot(summary, out_dir)),
+        ("coadd", render_coadd_plot(summary, out_dir)),
+        ("movie", render_movie(summary, out_dir, annotate=annotate)),
+    ):
         if path is not None:
             summary.artifacts[kind] = str(path)
     return summary

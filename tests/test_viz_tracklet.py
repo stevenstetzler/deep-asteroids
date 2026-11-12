@@ -12,7 +12,9 @@ from deep_asteroids.database.images import Image
 from deep_asteroids.ingest.tracklets import ingest_source
 from deep_asteroids.util.cutout import CutoutPhotometryEngine, PhotometryRecord
 from deep_asteroids.viz.tracklet import (
+    _annotation_text,
     _cutout_stack,
+    _fit_annotation,
     measure_tracklet,
     render_coadd_plot,
     render_light_curve_plot,
@@ -28,9 +30,9 @@ NIGHT = 20190402
 class FakeCutoutEngine(CutoutPhotometryEngine):
     """Deterministic stand-in for LSSTCutoutPhotometry: ra < 0 is the
     out-of-bounds sentinel (matching test_cutout.py's convention);
-    everything else gets a small FITS cutout written if cutout_dir is
-    given, and a mag that varies by the request id so a light curve has
-    something to plot."""
+    everything else gets a FITS cutout of the requested cutout_size
+    written if cutout_dir is given, and a mag that varies by the request
+    id so a light curve has something to plot."""
 
     def measure(self, uri, requests, cutout_dir=None, cutout_size=51):
         for r in requests:
@@ -39,7 +41,7 @@ class FakeCutoutEngine(CutoutPhotometryEngine):
             cutout_path = None
             if in_bounds and cutout_dir is not None:
                 Path(cutout_dir).mkdir(parents=True, exist_ok=True)
-                data = np.full((5, 5), float(int(r.id) % 7))
+                data = np.full((cutout_size, cutout_size), float(int(r.id) % 7))
                 hdul = fits.HDUList([fits.PrimaryHDU(), fits.ImageHDU(data=data, name="IMAGE")])
                 cutout_path = str(Path(cutout_dir) / f"{r.id}.fits")
                 hdul.writeto(cutout_path, overwrite=True)
@@ -150,6 +152,75 @@ def test_measure_tracklet(known_tracklets, images, tmp_path):
     assert filenames == sorted(filenames)
     assert [f.split("_", 1)[0] for f in filenames] == ["0000", "0001", "0002"]
 
+    # night/field/expnum come from the matched Image row -- --annotate reads these
+    assert all(m.night == NIGHT and m.field == "A0b" for m in summary.measurements)
+    assert sorted(m.expnum for m in summary.measurements) == [845580, 845581, 845582]
+
+
+def test_annotation_text_formats_measurement_fields(known_tracklets, images, tmp_path):
+    (t,) = resolve_tracklets(known_tracklets, "mpc_observation", NIGHT, trkid="00000E2QG2")
+    summary = measure_tracklet(known_tracklets, get_deep_db(), FakeCutoutEngine(), t, cutout_dir=str(tmp_path))
+    m = summary.measurements[0]
+    assert _annotation_text("{night}/{field}/{expnum}", m) == f"{NIGHT}/A0b/{m.expnum}"
+    assert _annotation_text("mag={mag:.2f}", m) == f"mag={m.mag:.2f}"
+
+
+def test_annotation_text_rejects_unknown_field(known_tracklets, images, tmp_path):
+    (t,) = resolve_tracklets(known_tracklets, "mpc_observation", NIGHT, trkid="00000E2QG2")
+    summary = measure_tracklet(known_tracklets, get_deep_db(), FakeCutoutEngine(), t, cutout_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="unknown field"):
+        _annotation_text("{nope}", summary.measurements[0])
+
+
+def test_fit_annotation_shrinks_and_truncates_to_fit_width():
+    from PIL import Image as PILImage
+    from PIL import ImageDraw
+
+    draw = ImageDraw.Draw(PILImage.new("L", (1, 1)))
+    long_text = "20190402/A0b/845580 this is a very long annotation string indeed"
+
+    font, text = _fit_annotation(draw, long_text, max_width=200, max_size=40)
+    assert draw.textlength(text, font=font) <= 200
+
+    # even the smallest font doesn't fit a string this long in this little
+    # width -- falls back to truncating with an ellipsis, still fitting
+    font, text = _fit_annotation(draw, long_text, max_width=40, max_size=40, min_size=10)
+    assert draw.textlength(text, font=font) <= 40
+    assert text.endswith("…")
+
+
+def test_render_movie_with_annotate_draws_white_text_that_fits(known_tracklets, images, tmp_path):
+    from PIL import Image as PILImage
+
+    (t,) = resolve_tracklets(known_tracklets, "mpc_observation", NIGHT, trkid="00000E2QG2")
+    summary = measure_tracklet(known_tracklets, get_deep_db(), FakeCutoutEngine(), t, cutout_dir=str(tmp_path))
+
+    plain_path = render_movie(summary, tmp_path / "plain")
+    annotated_path = render_movie(summary, tmp_path / "annotated", annotate="{night}/{field}/{expnum}")
+    assert plain_path is not None and annotated_path is not None
+
+    plain = PILImage.open(plain_path)
+    annotated = PILImage.open(annotated_path)
+    assert plain.size == annotated.size  # annotation doesn't resize the frame
+
+    # the annotated frame must have some pure-white (255) pixels near the
+    # top that the plain one doesn't -- i.e. text was actually drawn, in
+    # white, within the frame's own width (no wraparound/clipping)
+    plain_arr = np.array(plain.convert("L"))
+    annotated_arr = np.array(annotated.convert("L"))
+    top_band = slice(0, 20)
+    assert not (plain_arr[top_band] == 255).any()
+    assert (annotated_arr[top_band] == 255).any()
+    white_columns = np.flatnonzero((annotated_arr[top_band] == 255).any(axis=0))
+    assert white_columns.min() >= 0
+    assert white_columns.max() < annotated_arr.shape[1]
+
+
+def test_viz_tracklet_annotate_rejects_unknown_field_via_cli(known_tracklets, images, tmp_path):
+    (t,) = resolve_tracklets(known_tracklets, "mpc_observation", NIGHT, trkid="00000E2QG2")
+    with pytest.raises(ValueError, match="unknown field"):
+        visualize_tracklet(known_tracklets, get_deep_db(), FakeCutoutEngine(), t, tmp_path, annotate="{nope}")
+
 
 def test_render_movie_sorts_frames_even_if_measurements_are_not(known_tracklets, images, tmp_path):
     """_cutout_stack()/render_movie() re-sort defensively -- this doesn't
@@ -161,7 +232,8 @@ def test_render_movie_sorts_frames_even_if_measurements_are_not(known_tracklets,
     assert render_movie(summary, tmp_path) is not None
 
     frames = _cutout_stack(summary)
-    assert [f[0] for f in frames] == sorted(f[0] for f in frames)
+    mjds = [m.mjd_tai for m, _ in frames]
+    assert mjds == sorted(mjds)
 
 
 def test_measure_tracklet_no_fit_returns_empty_summary(known_tracklets, images):
