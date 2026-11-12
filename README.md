@@ -259,10 +259,13 @@ Butler registry/repo and vendored engine end to end:
 |---|---|---|
 | mpchecker ephemeris | `permid=612388` (2002 PV170), night 20220825 | 92/93 exposures measured; coadd shows a clean, centered point source |
 | MPC observation | `permid=592187` (2014 QZ79), night 20201019, trkid `00000FFqBy` | 88/88 exposures measured; a second trkid that night for the same object (`00000FFq8F`) is correctly skipped (flagged `same_obstime_conflict`, no fit) |
-| synthetic binary | `orbit_id=1009536` ('tno'), night 20211005 | all four components (primary/companion/barycenter/photocenter) measured at 103/103 exposures each; each component's coadd is a clean, centered detection (the binary's two injected components resolve as a single, slightly elongated blend in the primary/companion coadds, consistent with their known sub-pixel separation) |
+| synthetic binary | `orbit_id=503133` ('tno', 4.0" separation), night 20190708 | all four components (primary/companion/barycenter/photocenter) measured at 121/121 exposures each; primary/companion resolve as two separate detections, and the photocenter (flux-weighted) coadd sits visibly closer to the brighter primary than the barycenter (unweighted midpoint) does |
 
-Example `light_curve.png`/`coadd.png` pairs for all three cases are in
-`docs/examples/viz/`.
+Example `light_curve.png`/`coadd.png`/`movie.gif` for all three cases are
+in `docs/examples/viz/`; `examples/` has a self-contained, idempotent
+script per case (`mpchecker_612388.sh`, `mpc_observation_592187.sh`,
+`synthetic_503133.sh`) that reproduces them end to end against the real
+registry/repo -- see `examples/README.md`.
 
 ## Known-object tracklets
 
