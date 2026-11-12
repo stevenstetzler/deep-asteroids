@@ -12,6 +12,7 @@ from deep_asteroids.database.images import Image
 from deep_asteroids.ingest.tracklets import ingest_source
 from deep_asteroids.util.cutout import CutoutPhotometryEngine, PhotometryRecord
 from deep_asteroids.viz.tracklet import (
+    _cutout_stack,
     measure_tracklet,
     render_coadd_plot,
     render_light_curve_plot,
@@ -141,6 +142,26 @@ def test_measure_tracklet(known_tracklets, images, tmp_path):
     assert [m.mjd_tai for m in summary.measurements] == sorted(m.mjd_tai for m in summary.measurements)
     assert all(m.in_bounds for m in summary.measurements)
     assert all(m.cutout_path and Path(m.cutout_path).exists() for m in summary.measurements)
+
+    # cutout filenames carry a zero-padded chronological index, so a plain
+    # directory listing sorts the same way the light curve/movie do --
+    # deep_db_detector_exposure_id alone has no guaranteed relation to time
+    filenames = [Path(m.cutout_path).name for m in summary.measurements]
+    assert filenames == sorted(filenames)
+    assert [f.split("_", 1)[0] for f in filenames] == ["0000", "0001", "0002"]
+
+
+def test_render_movie_sorts_frames_even_if_measurements_are_not(known_tracklets, images, tmp_path):
+    """_cutout_stack()/render_movie() re-sort defensively -- this doesn't
+    rely on measure_tracklet() having already sorted its own output."""
+    (t,) = resolve_tracklets(known_tracklets, "mpc_observation", NIGHT, trkid="00000E2QG2")
+    summary = measure_tracklet(known_tracklets, get_deep_db(), FakeCutoutEngine(), t, cutout_dir=str(tmp_path))
+    assert len(summary.measurements) == 3
+    summary.measurements.reverse()  # deliberately scramble the already-correct order
+    assert render_movie(summary, tmp_path) is not None
+
+    frames = _cutout_stack(summary)
+    assert [f[0] for f in frames] == sorted(f[0] for f in frames)
 
 
 def test_measure_tracklet_no_fit_returns_empty_summary(known_tracklets, images):

@@ -169,7 +169,7 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
         log.warning("%s has no fit (flag=%s) -- nothing to measure", tracklet, tracklet.flag)
         return VizSummary(tracklet=tracklet)
 
-    points = touched_points(deep_engine, tracklet)
+    points = sorted(touched_points(deep_engine, tracklet), key=lambda p: p[1])  # chronological (midpoint_mjd_utc)
     summary = VizSummary(tracklet=tracklet, n_exposures_touched=len(points))
     if not points:
         return summary
@@ -185,7 +185,7 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
     }
     summary.n_images_found = len(images_by_detector_exposure)
 
-    for detector_exposure_id, midpoint_mjd_utc in points:
+    for i, (detector_exposure_id, midpoint_mjd_utc) in enumerate(points):
         image = images_by_detector_exposure.get(detector_exposure_id)
         if image is None:
             continue
@@ -195,8 +195,14 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
 
         from deep_asteroids.util.cutout import PhotometryRequest
 
+        # the request id becomes the cutout's filename (<id>.fits) -- a
+        # zero-padded chronological index prefix means a plain directory
+        # listing sorts the same way the light curve/movie do, not by
+        # deep_db_detector_exposure_id (which has no guaranteed relation
+        # to time: ingest order, not observation order)
+        request_id = f"{i:04d}_{detector_exposure_id}"
         (record,) = engine.measure(
-            image.uri, [PhotometryRequest(id=str(detector_exposure_id), ra=ra, dec=dec)],
+            image.uri, [PhotometryRequest(id=request_id, ra=ra, dec=dec)],
             cutout_dir=cutout_dir, cutout_size=cutout_size,
         )
         summary.measurements.append(TrackletMeasurement(
@@ -204,6 +210,8 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
             in_bounds=record.in_bounds, mag=record.mag, mag_err_lo=record.mag_err_lo,
             mag_err_hi=record.mag_err_hi, cutout_path=record.cutout_path,
         ))
+    # already chronological (points was pre-sorted above) -- re-asserted
+    # explicitly so this invariant doesn't silently depend on that order
     summary.measurements.sort(key=lambda m: m.mjd_tai)
     return summary
 
@@ -255,6 +263,11 @@ def _cutout_stack(summary):
             continue
         with fits.open(m.cutout_path) as hdul:
             frames.append((m.mjd_tai, hdul["IMAGE"].data.astype(float)))
+    # measure_tracklet() already hands back measurements in mjd order, but
+    # render_movie()'s frame order is exactly what a viewer judges "sorted
+    # or not" by, so this doesn't trust that upstream invariant silently --
+    # matches salad's own mpc_viz.py, which re-sorts here too.
+    frames.sort(key=lambda f: f[0])
     return frames
 
 
