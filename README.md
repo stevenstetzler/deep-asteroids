@@ -9,9 +9,10 @@ source of survey geometry, MPC observations, mpchecker ephemerides and
 synthetic (fake) objects.
 
 > Status: phase 1. Known-object tracklets, search definitions, and
-> images (linking exposures to Butler dataset paths) are ingested, and a
-> vendored forced-photometry/cutout engine is in place. Visualizing
-> known objects' cutouts/light curves comes next.
+> images (linking exposures to Butler dataset paths) are ingested; a
+> vendored forced-photometry/cutout engine is in place; and known
+> objects' cutouts/light curves/coadds/movies can be visualized directly
+> from a known_tracklet row. Phase 1 is complete.
 
 ## Installation
 
@@ -228,6 +229,50 @@ a real detected peak (`ix=1309, iy=89`) matches salad's own
 output is byte-for-byte identical to salad's own already-built copy at
 the same position -- confirming the trimmed `detect_common.h` changed
 nothing behavioral.
+
+## Visualizing known objects
+
+```bash
+deep-asteroids viz tracklet --source {synthetic|mpc_observation|mpchecker} --night N \
+    (--trkid T | --orbit-id O [--component C] | --provid P | --permid P) \
+    [--out-dir DIR] [--product-type P] [--cutout-size N] [--annotate TEMPLATE]
+```
+
+For one `known_tracklet` row -- or every component of a synthetic
+binary at once, if `--component` is omitted -- and every exposure its
+own deep-db points touch on its night: runs forced photometry and
+writes a pixel cutout at the object's **predicted** position (from the
+tracklet's own linear fit, not the raw deep-db point -- this exercises
+the fit itself), then renders `light_curve.png` (mag vs. MJD TAI),
+`coadd.png` (median stack, ZScale-stretched) and `movie.gif` (one frame
+per exposure, chronological, shared ZScale normalization, 4x
+nearest-neighbor upscale, 2 fps). Needs `ingest images` and the vendored
+cutout engine (above) already done. Default output directory:
+`./viz/<source>/<night>/<identity>/`; resolving more than one row (a
+binary) nests a subdirectory per component under an explicit `--out-dir`
+too, so components never overwrite each other's plots or cutouts.
+
+`--annotate` is a `str.format()` template (e.g. `'{night}/{field}/{expnum}'`)
+drawn in white at the top of every `movie.gif` frame -- fields:
+`night`, `field`, `expnum`, `mjd_tai`, `ra`, `dec`, `mag`. The font
+shrinks (and, failing that, the text is truncated with an ellipsis) to
+always fit within the frame's own width, however narrow `--cutout-size`
+makes it.
+
+Verified against issue #5's three published test cases, using the real
+Butler registry/repo and vendored engine end to end:
+
+| case | identity | result |
+|---|---|---|
+| mpchecker ephemeris | `permid=612388` (2002 PV170), night 20220825 | 92/93 exposures measured; coadd shows a clean, centered point source |
+| MPC observation | `permid=592187` (2014 QZ79), night 20201019, trkid `00000FFqBy` | 88/88 exposures measured; a second trkid that night for the same object (`00000FFq8F`) is correctly skipped (flagged `same_obstime_conflict`, no fit) |
+| synthetic binary | `orbit_id=503133` ('tno', 4.0" separation), night 20190708 | all four components (primary/companion/barycenter/photocenter) measured at 121/121 exposures each; primary/companion resolve as two separate detections, and the photocenter (flux-weighted) coadd sits visibly closer to the brighter primary than the barycenter (unweighted midpoint) does |
+
+Example `light_curve.png`/`coadd.png`/`movie.gif` for all three cases are
+in `docs/examples/viz/`; `examples/` has a self-contained, idempotent
+script per case (`mpchecker_612388.sh`, `mpc_observation_592187.sh`,
+`synthetic_503133.sh`) that reproduces them end to end against the real
+registry/repo -- see `examples/README.md`.
 
 ## Known-object tracklets
 
