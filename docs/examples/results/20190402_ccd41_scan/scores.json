@@ -26,5 +26,327 @@
   "n_meas": 103,
   "mean_flux": 1022.2334346630824,
   "stack_snr": 88.37822540178132
+ },
+ {
+  "result_num": 29,
+  "n_points": 98,
+  "n_meas": 103,
+  "mean_flux": 860.1719736580155,
+  "stack_snr": 74.58041046527327
+ },
+ {
+  "result_num": 34,
+  "n_points": 94,
+  "n_meas": 97,
+  "mean_flux": 840.5084753734646,
+  "stack_snr": 71.00496081388324
+ },
+ {
+  "result_num": 25,
+  "n_points": 103,
+  "n_meas": 103,
+  "mean_flux": 754.7540689175095,
+  "stack_snr": 65.51467787272259
+ },
+ {
+  "result_num": 28,
+  "n_points": 101,
+  "n_meas": 103,
+  "mean_flux": 719.5160309913616,
+  "stack_snr": 62.59033873530381
+ },
+ {
+  "result_num": 30,
+  "n_points": 98,
+  "n_meas": 103,
+  "mean_flux": 706.591465432397,
+  "stack_snr": 61.2937078027904
+ },
+ {
+  "result_num": 35,
+  "n_points": 90,
+  "n_meas": 103,
+  "mean_flux": 689.052184799231,
+  "stack_snr": 60.50967464693843
+ },
+ {
+  "result_num": 18,
+  "n_points": 140,
+  "n_meas": 75,
+  "mean_flux": 141.7158690081513,
+  "stack_snr": 10.288154265068316
+ },
+ {
+  "result_num": 9,
+  "n_points": 171,
+  "n_meas": 88,
+  "mean_flux": 121.25828644756635,
+  "stack_snr": 9.744005095964834
+ },
+ {
+  "result_num": 15,
+  "n_points": 152,
+  "n_meas": 99,
+  "mean_flux": 109.36231983215426,
+  "stack_snr": 9.355396655177604
+ },
+ {
+  "result_num": 46,
+  "n_points": 58,
+  "n_meas": 94,
+  "mean_flux": 109.96294134745175,
+  "stack_snr": 9.157408141896727
+ },
+ {
+  "result_num": 6,
+  "n_points": 193,
+  "n_meas": 99,
+  "mean_flux": 106.61151853283842,
+  "stack_snr": 9.118630163763934
+ },
+ {
+  "result_num": 0,
+  "n_points": 254,
+  "n_meas": 103,
+  "mean_flux": 101.48602839479423,
+  "stack_snr": 8.851480433814015
+ },
+ {
+  "result_num": 11,
+  "n_points": 167,
+  "n_meas": 90,
+  "mean_flux": 108.45121530272593,
+  "stack_snr": 8.825165309798281
+ },
+ {
+  "result_num": 4,
+  "n_points": 217,
+  "n_meas": 103,
+  "mean_flux": 96.33879123715687,
+  "stack_snr": 8.414790966598842
+ },
+ {
+  "result_num": 3,
+  "n_points": 223,
+  "n_meas": 103,
+  "mean_flux": 92.33774905177083,
+  "stack_snr": 8.055634272351906
+ },
+ {
+  "result_num": 33,
+  "n_points": 94,
+  "n_meas": 103,
+  "mean_flux": 90.78633000855858,
+  "stack_snr": 7.922450573133194
+ },
+ {
+  "result_num": 22,
+  "n_points": 115,
+  "n_meas": 64,
+  "mean_flux": 118.87921729598688,
+  "stack_snr": 7.796929091764182
+ },
+ {
+  "result_num": 48,
+  "n_points": 54,
+  "n_meas": 103,
+  "mean_flux": 93.63366203434923,
+  "stack_snr": 7.625864244775252
+ },
+ {
+  "result_num": 2,
+  "n_points": 230,
+  "n_meas": 103,
+  "mean_flux": 87.28492482749323,
+  "stack_snr": 7.614798062149858
+ },
+ {
+  "result_num": 17,
+  "n_points": 146,
+  "n_meas": 73,
+  "mean_flux": 104.58348806432006,
+  "stack_snr": 7.453393889390361
+ },
+ {
+  "result_num": 1,
+  "n_points": 246,
+  "n_meas": 103,
+  "mean_flux": 83.3765508985844,
+  "stack_snr": 7.2758864234525475
+ },
+ {
+  "result_num": 21,
+  "n_points": 115,
+  "n_meas": 70,
+  "mean_flux": 104.18975996381522,
+  "stack_snr": 7.254290964375627
+ },
+ {
+  "result_num": 7,
+  "n_points": 193,
+  "n_meas": 103,
+  "mean_flux": 77.72998038570178,
+  "stack_snr": 6.797289515505619
+ },
+ {
+  "result_num": 10,
+  "n_points": 168,
+  "n_meas": 102,
+  "mean_flux": 74.4834363521421,
+  "stack_snr": 6.476190875894628
+ },
+ {
+  "result_num": 31,
+  "n_points": 97,
+  "n_meas": 72,
+  "mean_flux": 79.18518934566136,
+  "stack_snr": 6.005273996698443
+ },
+ {
+  "result_num": 5,
+  "n_points": 214,
+  "n_meas": 103,
+  "mean_flux": 59.70896040370779,
+  "stack_snr": 5.214726003756982
+ },
+ {
+  "result_num": 37,
+  "n_points": 83,
+  "n_meas": 92,
+  "mean_flux": 58.931360600435625,
+  "stack_snr": 4.916039869495637
+ },
+ {
+  "result_num": 13,
+  "n_points": 164,
+  "n_meas": 103,
+  "mean_flux": 55.29900960693553,
+  "stack_snr": 4.799125729593639
+ },
+ {
+  "result_num": 12,
+  "n_points": 166,
+  "n_meas": 103,
+  "mean_flux": 51.15967360490912,
+  "stack_snr": 4.467399676235133
+ },
+ {
+  "result_num": 42,
+  "n_points": 70,
+  "n_meas": 103,
+  "mean_flux": 46.42794629389287,
+  "stack_snr": 4.062926201129025
+ },
+ {
+  "result_num": 36,
+  "n_points": 84,
+  "n_meas": 68,
+  "mean_flux": 55.39629491643069,
+  "stack_snr": 3.7862006726912454
+ },
+ {
+  "result_num": 38,
+  "n_points": 77,
+  "n_meas": 103,
+  "mean_flux": 39.8430691850225,
+  "stack_snr": 3.4672628134786936
+ },
+ {
+  "result_num": 27,
+  "n_points": 101,
+  "n_meas": 103,
+  "mean_flux": 34.04911624291591,
+  "stack_snr": 2.9758272207866256
+ },
+ {
+  "result_num": 16,
+  "n_points": 147,
+  "n_meas": 103,
+  "mean_flux": 29.327516233885756,
+  "stack_snr": 2.5354038311715263
+ },
+ {
+  "result_num": 47,
+  "n_points": 57,
+  "n_meas": 92,
+  "mean_flux": 31.927052972755742,
+  "stack_snr": 2.4787534982898793
+ },
+ {
+  "result_num": 19,
+  "n_points": 137,
+  "n_meas": 103,
+  "mean_flux": 28.37510680873209,
+  "stack_snr": 2.430467310240238
+ },
+ {
+  "result_num": 8,
+  "n_points": 180,
+  "n_meas": 103,
+  "mean_flux": 27.201144065577132,
+  "stack_snr": 2.355439153560866
+ },
+ {
+  "result_num": 41,
+  "n_points": 72,
+  "n_meas": 97,
+  "mean_flux": 26.969843138663393,
+  "stack_snr": 2.2734115334300613
+ },
+ {
+  "result_num": 20,
+  "n_points": 116,
+  "n_meas": 103,
+  "mean_flux": 25.894202546196624,
+  "stack_snr": 2.233654225426213
+ },
+ {
+  "result_num": 45,
+  "n_points": 62,
+  "n_meas": 103,
+  "mean_flux": 21.69897511054665,
+  "stack_snr": 1.9015936438530967
+ },
+ {
+  "result_num": 39,
+  "n_points": 76,
+  "n_meas": 96,
+  "mean_flux": 22.5204647589084,
+  "stack_snr": 1.8923745898051147
+ },
+ {
+  "result_num": 40,
+  "n_points": 73,
+  "n_meas": 103,
+  "mean_flux": 18.864961032573135,
+  "stack_snr": 1.6499894555483543
+ },
+ {
+  "result_num": 14,
+  "n_points": 160,
+  "n_meas": 103,
+  "mean_flux": 17.460668205322897,
+  "stack_snr": 1.511885843660549
+ },
+ {
+  "result_num": 23,
+  "n_points": 108,
+  "n_meas": 97,
+  "mean_flux": 15.683388122583622,
+  "stack_snr": 1.3273739881375695
+ },
+ {
+  "result_num": 49,
+  "n_points": 53,
+  "n_meas": 103,
+  "mean_flux": 10.013325076143659,
+  "stack_snr": 0.877022295726148
+ },
+ {
+  "result_num": 44,
+  "n_points": 63,
+  "n_meas": 99,
+  "mean_flux": 1.0461104411935205,
+  "stack_snr": 0.08971153597894639
  }
 ]
