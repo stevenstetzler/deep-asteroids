@@ -33,7 +33,11 @@ work already done) and writes its own `viz/<case>/` output directory,
 plus a `deep_asteroids_examples.sqlite` database in the current
 directory (override with `$DEEP_ASTEROIDS_DB`; override the output
 directory with `$OUT_DIR`). `$REPO_DIR`/`$REGISTRY_HOST` default to the
-real klone paths and can be overridden too -- see `common.sh`.
+real klone paths and can be overridden too -- see `common.sh`. Each
+`movie.gif` is annotated per frame with `$ANNOTATE` (default
+`{night}/{field}/{expnum}`, in white at the top of the frame) -- see
+`deep-asteroids viz tracklet --help`/the main README for the fields
+available.
 
 ## What each one does
 

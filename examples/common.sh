@@ -12,6 +12,8 @@ set -euo pipefail
 export DEEP_ASTEROIDS_DB
 echo "DEEP_ASTEROIDS_DB=$DEEP_ASTEROIDS_DB" >&2
 
+: "${ANNOTATE:="{night}/{field}/{expnum}"}"
+
 : "${REPO_DIR:=/gscratch/dirac/DEEP/repo}"
 : "${REGISTRY_HOST:=epyc.astro.washington.edu/deep_klone_2}"
 : "${PGUSER:?Set PGUSER, e.g. 'source /gscratch/dirac/DEEP/data/credentials' first}"

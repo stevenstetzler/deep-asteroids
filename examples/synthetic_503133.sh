@@ -19,4 +19,4 @@ setup_night "$NIGHT" "$FIELD" synthetic
 
 deep-asteroids viz tracklet \
     --source synthetic --night "$NIGHT" --orbit-id 503133 \
-    --out-dir "${OUT_DIR:-./viz/synthetic_503133}"
+    --out-dir "${OUT_DIR:-./viz/synthetic_503133}" --annotate "$ANNOTATE"

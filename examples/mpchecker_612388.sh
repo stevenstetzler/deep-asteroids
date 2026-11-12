@@ -14,4 +14,4 @@ setup_night "$NIGHT" "$FIELD" mpc-ephemeris
 
 deep-asteroids viz tracklet \
     --source mpchecker --night "$NIGHT" --permid 612388 \
-    --out-dir "${OUT_DIR:-./viz/mpchecker_612388}"
+    --out-dir "${OUT_DIR:-./viz/mpchecker_612388}" --annotate "$ANNOTATE"

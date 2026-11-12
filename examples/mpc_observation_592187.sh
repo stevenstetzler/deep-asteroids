@@ -19,4 +19,4 @@ setup_night "$NIGHT" "$FIELD" mpc-observations
 
 deep-asteroids viz tracklet \
     --source mpc_observation --night "$NIGHT" --trkid 00000FFqBy \
-    --out-dir "${OUT_DIR:-./viz/mpc_observation_592187}"
+    --out-dir "${OUT_DIR:-./viz/mpc_observation_592187}" --annotate "$ANNOTATE"
