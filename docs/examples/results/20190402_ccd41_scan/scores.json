@@ -1,0 +1,30 @@
+[
+ {
+  "result_num": 26,
+  "n_points": 103,
+  "n_meas": 103,
+  "mean_flux": 15450.036834483031,
+  "stack_snr": 1157.2700005174408
+ },
+ {
+  "result_num": 43,
+  "n_points": 70,
+  "n_meas": 73,
+  "mean_flux": 2752.9775573965435,
+  "stack_snr": 200.83804132390551
+ },
+ {
+  "result_num": 24,
+  "n_points": 105,
+  "n_meas": 103,
+  "mean_flux": 1182.80455126067,
+  "stack_snr": 101.93275694727777
+ },
+ {
+  "result_num": 32,
+  "n_points": 97,
+  "n_meas": 103,
+  "mean_flux": 1022.2334346630824,
+  "stack_snr": 88.37822540178132
+ }
+]
