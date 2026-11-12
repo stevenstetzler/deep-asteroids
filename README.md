@@ -9,9 +9,10 @@ source of survey geometry, MPC observations, mpchecker ephemerides and
 synthetic (fake) objects.
 
 > Status: phase 1. Known-object tracklets, search definitions, and
-> images (linking exposures to Butler dataset paths) are ingested, and a
-> vendored forced-photometry/cutout engine is in place. Visualizing
-> known objects' cutouts/light curves comes next.
+> images (linking exposures to Butler dataset paths) are ingested; a
+> vendored forced-photometry/cutout engine is in place; and known
+> objects' cutouts/light curves/coadds/movies can be visualized directly
+> from a known_tracklet row. Phase 1 is complete.
 
 ## Installation
 
@@ -228,6 +229,40 @@ a real detected peak (`ix=1309, iy=89`) matches salad's own
 output is byte-for-byte identical to salad's own already-built copy at
 the same position -- confirming the trimmed `detect_common.h` changed
 nothing behavioral.
+
+## Visualizing known objects
+
+```bash
+deep-asteroids viz tracklet --source {synthetic|mpc_observation|mpchecker} --night N \
+    (--trkid T | --orbit-id O [--component C] | --provid P | --permid P) \
+    [--out-dir DIR] [--product-type P] [--cutout-size N]
+```
+
+For one `known_tracklet` row -- or every component of a synthetic
+binary at once, if `--component` is omitted -- and every exposure its
+own deep-db points touch on its night: runs forced photometry and
+writes a pixel cutout at the object's **predicted** position (from the
+tracklet's own linear fit, not the raw deep-db point -- this exercises
+the fit itself), then renders `light_curve.png` (mag vs. MJD TAI),
+`coadd.png` (median stack, ZScale-stretched) and `movie.gif` (one frame
+per exposure, chronological, shared ZScale normalization, 4x
+nearest-neighbor upscale, 2 fps). Needs `ingest images` and the vendored
+cutout engine (above) already done. Default output directory:
+`./viz/<source>/<night>/<identity>/`; resolving more than one row (a
+binary) nests a subdirectory per component under an explicit `--out-dir`
+too, so components never overwrite each other's plots or cutouts.
+
+Verified against issue #5's three published test cases, using the real
+Butler registry/repo and vendored engine end to end:
+
+| case | identity | result |
+|---|---|---|
+| mpchecker ephemeris | `permid=612388` (2002 PV170), night 20220825 | 92/93 exposures measured; coadd shows a clean, centered point source |
+| MPC observation | `permid=592187` (2014 QZ79), night 20201019, trkid `00000FFqBy` | 88/88 exposures measured; a second trkid that night for the same object (`00000FFq8F`) is correctly skipped (flagged `same_obstime_conflict`, no fit) |
+| synthetic binary | `orbit_id=1009536` ('tno'), night 20211005 | all four components (primary/companion/barycenter/photocenter) measured at 103/103 exposures each; each component's coadd is a clean, centered detection (the binary's two injected components resolve as a single, slightly elongated blend in the primary/companion coadds, consistent with their known sub-pixel separation) |
+
+Example `light_curve.png`/`coadd.png` pairs for all three cases are in
+`docs/examples/viz/`.
 
 ## Known-object tracklets
 
