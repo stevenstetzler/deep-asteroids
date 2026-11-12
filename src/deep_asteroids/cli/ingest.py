@@ -13,7 +13,7 @@ TRACKLET_SOURCES = {
 @main.group()
 @click.pass_context
 def ingest(ctx):
-    """Ingest search definitions and known-object tracklets from deep-db."""
+    """Ingest search definitions, known-object tracklets, images and find-asteroids results."""
 
 
 @ingest.command()
@@ -102,3 +102,51 @@ def tracklets(ctx, sources, nights, force, max_residual_arcsec):
                 max_residual_arcsec=MAX_RESIDUAL_ARCSEC if max_residual_arcsec is None else max_residual_arcsec,
             )
             click.echo(summary.format())
+
+
+@ingest.command()
+@click.option("--results-dir", type=click.Path(file_okay=False), help="A find-asteroids run_search() results directory")
+@click.option("--run-id", "run_ids", multiple=True,
+              help="With --results-dir: the run_id to ingest it as. With --results-db: only these run_ids (repeatable)")
+@click.option("--output-format", default="ecsv", show_default=True, help="With --results-dir: the tables' astropy format")
+@click.option("--results-db", help="A SQLAlchemy URL for a find-asteroids results database to copy from (e.g. salad's)")
+@click.option("--night", "nights", multiple=True, type=int, help="With --results-db: only run_ids ending in this night (repeatable)")
+@click.option("--force", is_flag=True, help="Replace run_ids that already exist")
+@click.pass_context
+def results(ctx, results_dir, run_ids, output_format, results_db, nights, force):
+    """Ingest find-asteroids results, from a results directory on disk
+    (--results-dir DIR --run-id ID) or another find-asteroids results
+    database (--results-db URL [--run-id ID ...] [--night N ...]).
+
+    Rows go into find-asteroids' own search/result/gathered/points/tracklet
+    tables; a run_id equal to a search_definition.run_id ties a run to its
+    search definition. Re-running skips run_ids already ingested unless
+    --force."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import create_db
+
+    if bool(results_dir) == bool(results_db):
+        raise click.UsageError("give exactly one of --results-dir or --results-db")
+    if results_dir:
+        if len(run_ids) != 1:
+            raise click.UsageError("--results-dir needs exactly one --run-id")
+        if nights:
+            raise click.UsageError("--night only applies to --results-db")
+    from deep_asteroids.ingest.results import ingest_results_db, ingest_results_dir
+
+    with Session(create_db()) as session:
+        if results_dir:
+            summary = ingest_results_dir(
+                session, results_dir, run_ids[0], output_format=output_format, force=force,
+            )
+        else:
+            source = create_engine(results_db)
+            try:
+                summary = ingest_results_db(
+                    session, source, run_ids=list(run_ids) or None, nights=list(nights) or None, force=force,
+                )
+            finally:
+                source.dispose()
+    click.echo(summary.format())

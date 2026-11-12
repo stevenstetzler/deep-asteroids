@@ -194,6 +194,37 @@ deep-asteroids query images [FIELDS ...] [--night N] [--field F] [--detector-num
 
 Same `|`-separated style as `query searches`/`query tracklets`.
 
+## find-asteroids results
+
+```bash
+deep-asteroids ingest results --results-dir DIR --run-id RUN_ID [--output-format ecsv] [--force]
+deep-asteroids ingest results --results-db URL [--run-id RUN_ID ...] [--night N ...] [--force]
+```
+
+Ingests find-asteroids results into its own `search`/`result`/`gathered`/
+`points`/`tracklet` tables (same metadata as ours, so everything joins in
+plain SQL), from either:
+
+- **A results directory on disk**: `DIR/<result_num>/{result,gathered,
+  points,tracklet}.<format>` as written by `run_search()`. `--run-id` names
+  the run; columns the tables lack (e.g. `image_id`) are kept in `extra`.
+- **Another find-asteroids results database** (any SQLAlchemy URL, e.g.
+  salad's Postgres): every run, or just `--run-id`/`--night` ones (a night
+  matches run_ids ending `-<night>` or `-<night>-<band>`), copied with ids
+  remapped. Only the five find-asteroids tables are read.
+
+A run's `Search.run_id` equal to a `search_definition.run_id` is the join
+back to its (night, field, detector); the summary warns about run_ids with
+no matching definition (run `ingest searches` first). Re-running skips
+run_ids already ingested; `--force` replaces them. Values are copied
+verbatim -- notably, **salad's times are ~32.184 s earlier than true
+UTC-derived times** (its image times are TT-based), so salad-sourced
+`gathered`/`points`/`tracklet` times are not corrected here.
+
+Verified on night 20190402 from salad's database: 60 runs, 3,003 results,
+293,136 gathered, 168,828 points and 3,003 tracklets, matching the source
+row for row, in about 45 s; all 60 run_ids match a `search_definition`.
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++
