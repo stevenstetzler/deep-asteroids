@@ -3,12 +3,15 @@ find-asteroids result, at its own tracklet's predicted position in every
 exposure of its search. The result analog of ``deep-asteroids viz tracklet``,
 reusing that module's measuring and rendering.
 
-usage: viz_result.py RUN_ID RESULT_NUM OUT_DIR [--annotate TEMPLATE] [--time-offset-seconds S]
+usage: viz_result.py RUN_ID RESULT_NUM OUT_DIR [--annotate TEMPLATE] [--shutter-offset-seconds S]
 
-``--time-offset-seconds`` (default 32.184) is salad's timestamp offset: its
-tracklet times are 32.184 s earlier than UTC midpoints (see the README), so
-each exposure's tracklet time is ``utc_midpoint - offset``. Pass 0 for
-results that don't come from salad.
+Each exposure's tracklet time is deep-db's UTC midpoint converted to TAI, plus
+``--shutter-offset-seconds`` (default 0.5): salad's detection engine labels each
+exposure 0.5 s after its midpoint (DECam shutter latency), and its results'
+times carry that label. Measured against synthetic objects, the results'
+times are otherwise correct to within a fraction of a second
+(``time_offset_synthetic.py``). Pass 0 for results from a search that does not
+add the 0.5 s.
 
 ``sky.png`` is salad's sky plot (``salad/viz.py::render_sky_plot``): the result's
 gathered (observed) detections colored by time, with its tracklet's predicted
@@ -31,6 +34,7 @@ from sqlalchemy.orm import Session
 
 from deep_asteroids.database import get_db
 from deep_asteroids.database.images import Image
+from deep_asteroids.ingest.fit import utc_to_tai
 from deep_asteroids.database.search import SearchDefinition
 from deep_asteroids.util.cutout import LSSTCutoutPhotometry, PhotometryRequest
 from deep_asteroids.viz import tracklet as viz
@@ -85,9 +89,14 @@ parser.add_argument("run_id")
 parser.add_argument("result_num", type=int)
 parser.add_argument("out_dir", type=Path)
 parser.add_argument("--annotate", default="{night}/{field}/{expnum}")
-parser.add_argument("--time-offset-seconds", type=float, default=32.184)
+parser.add_argument("--shutter-offset-seconds", type=float, default=0.5)
 args = parser.parse_args()
-offset_days = args.time_offset_seconds / 86400
+shutter_days = args.shutter_offset_seconds / 86400
+
+
+def tracklet_time(midpoint_mjd_utc):
+    """The time (MJD TAI) at which a result's tracklet is evaluated for an exposure."""
+    return float(utc_to_tai(midpoint_mjd_utc)) + shutter_days
 
 with Session(get_db()) as session:
     t = session.scalars(
@@ -103,7 +112,7 @@ with Session(get_db()) as session:
     images = {i.deep_db_detector_exposure_id: i for i in session.scalars(select(Image).where(
         Image.product_type == "differenceExp",
         Image.deep_db_detector_exposure_id.in_([e.deep_db_detector_exposure_id for e in sd.exposures])))}
-    exposures = [e for e in sd.exposures if t.tmin - 0.01 <= e.midpoint_mjd - offset_days <= t.tmax + 0.01]
+    exposures = [e for e in sd.exposures if t.tmin - 0.01 <= tracklet_time(e.midpoint_mjd) <= t.tmax + 0.01]
 
 summary = viz.VizSummary(
     tracklet=SimpleNamespace(source="find-asteroids", night=sd.night, component=None, orbit_id=None,
@@ -117,7 +126,7 @@ with tempfile.TemporaryDirectory(prefix="viz-result-") as cutout_dir:
         image = images.get(e.deep_db_detector_exposure_id)
         if image is None:
             continue
-        tt = e.midpoint_mjd - offset_days  # the tracklet's own time scale
+        tt = tracklet_time(e.midpoint_mjd)
         ra, dec = (t.ra_0 + t.vra * tt) % 360, t.dec_0 + t.vdec * tt
         (rec,) = engine.measure(
             image.uri, [PhotometryRequest(id=f"{i:04d}_{e.deep_db_detector_exposure_id}", ra=ra, dec=dec)],
@@ -141,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix="viz-result-") as cutout_dir:
         ("light_curve", viz.render_light_curve_plot(summary, out)),
         ("coadd", viz.render_coadd_plot(summary, out)),
         ("movie", viz.render_movie(summary, out, annotate=args.annotate)),
-        ("sky", render_sky_plot(t, gathered, [e.midpoint_mjd - offset_days for e in exposures], out)),
+        ("sky", render_sky_plot(t, gathered, [tracklet_time(e.midpoint_mjd) for e in exposures], out)),
     ):
         if path is not None:
             summary.artifacts[kind] = str(path)
