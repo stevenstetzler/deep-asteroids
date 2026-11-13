@@ -36,16 +36,22 @@ previous run **exactly**: to get the same catalog, the same 0.5 s must be
 there. The earlier note about a ~69 s discrepancy was most likely about
 salad's `image` table times (a separate, unused column), not the catalog.
 
-**DECISION 1 (shutter label).** For the reproduction, apply the 0.5 s
-(`--shutter-offset-seconds 0.5`) so the new run is comparable to the old
-one. Our wrapper takes each exposure's time from deep-db
-(`search_definition_exposure.midpoint_mjd`, UTC) plus that constant, rather
-than from the engine's own VisitInfo-derived MJD, so there is one source of
-truth, and the engine's MJD is only checked against it (they should agree
-to a few microseconds). The constant is recorded with the run. Proposed
-default for new searches after the reproduction: 0 s, since the 0.5 s is
-not physical in deep-db's convention, to be confirmed against the DECam
-shutter model. Not needed before the reproduction is done.
+**DECISION 1 (shutter label), decided: the 0.5 s belongs in deep-db's
+midpoint** (deep-db issue #17, which lays out the options and the derived
+tables it affects). Our primitives therefore take each exposure's time from
+deep-db (`search_definition_exposure.midpoint_mjd`, UTC) plus
+`--shutter-offset-seconds`, **default 0**: once deep-db's midpoint includes
+the shutter latency, nothing is added here, and there is one source of truth.
+The engine's own VisitInfo-derived MJD is only checked against it (they
+should agree to a few microseconds).
+
+Until deep-db changes, its midpoint is 0.5 s earlier than the previous run's
+labels, so the reproduction passes `--shutter-offset-seconds 0.5` explicitly.
+The constant is recorded with each run, so a run is self-describing before
+and after the change; after it lands, the reproduction is rerun with 0 as a
+check (the new midpoint equals the old labels). If deep-db instead adds a
+separate column (option C in that issue), the wrapper reads that column and
+the constant stays 0.
 
 ## What already exists
 
@@ -97,21 +103,34 @@ thin CLI), and nothing that touches a queue or a scheduler:
 Design choices:
 - **Catalogs are files, one per image,** not database rows: there are far too
   many peaks. They are cheap to regenerate (detection is deterministic), so
-  the location is a choice, not a risk. **DECISION 2:** `--catalog-dir`
-  required, no default, never written to a shared filesystem unprompted. For
-  the pilot, a directory under the user's `/gscratch` space. Before the full
-  survey, per-image files (436k of them) should be packed per
-  `(night, field, detector)`, as the cutout work learned; deferred.
+  losing one is only a rerun. **DECISION 2, decided:** the catalog directory
+  defaults to `/gscratch/scrubbed/$USER/deep_asteroids/catalogs` (a dedicated
+  subdirectory of the user's scrubbed space; `--catalog-dir` overrides it).
+  Scrubbed files are deleted after ~21 days of inactivity, which suits
+  regenerable files; we do not touch files to refresh their timestamps.
+  `search run` detects any missing catalog itself (`search detect` runs the
+  detection alone, to inspect it).
+  **`--remove-catalogs`** on `search run` deletes the catalogs afterwards:
+  exactly the `<detector_exposure_id>.ecsv` files of that search's own
+  exposures, by exact path (no globbing, no recursion, never the directory
+  itself), and only after the results are ingested and committed. A failed
+  run, or a run skipped because its run_id already exists, deletes nothing.
+  Catalogs are keyed by detector-exposure, so the per-band and `NULL`-band
+  searches of one `(night, field, detector)` share them: removing after one
+  means the other re-detects, which is accepted. Before the full survey,
+  per-image files (436k of them) should be packed per `(night, field,
+  detector)`, as the cutout work learned; deferred.
 - **Determinism.** The Hough search is deterministic on CPU, and the
   refinement stage is not quite: `mcd_regression` builds
   `sklearn.covariance.MinCovDet` with no `random_state`, so which points it
-  calls outliers can vary run to run. The wrapper seeds numpy's global RNG
-  (`--seed`, default fixed, recorded in the run) before the refinement, so
-  our own reruns are bit-reproducible. It cannot reproduce the old run's
-  unseeded RNG state, which is why the comparison below has tolerances for
-  that stage and exactness for the earlier ones. **DECISION 3:** seed in our
-  wrapper now (proposed), and separately propose upstream that find-asteroids
-  take a `random_state`; that upstream change is out of this issue.
+  calls outliers can vary run to run. **DECISION 3, decided:** our wrapper
+  seeds numpy's global RNG (`--seed`, default fixed, recorded with the run)
+  around the refinement, and restores the previous RNG state afterwards, so
+  our own reruns are bit-reproducible and nothing else in the process is
+  affected. **No change to find-asteroids or mcd_regression, and no upstream
+  request.** The old run's unseeded RNG state cannot be reproduced, which is
+  why the comparison below has tolerances for that stage and exactness for
+  the earlier ones.
 - **Sizing from the allocation.** Thread counts from `$SLURM_CPUS_PER_TASK`
   (`NUMBA_NUM_THREADS`, `OMP_NUM_THREADS`); one detection subprocess per
   allocated CPU at most; no `nproc`. Defaults to 1.
@@ -135,9 +154,9 @@ Design choices:
 definition `deep-decam-A0b-ccd42-20190402-VR` (103 exposures).
 
 ```
-deep-asteroids search detect --night 20190402 --field A0b --detector-number 42 --band VR --catalog-dir DIR
-deep-asteroids search run    --night 20190402 --field A0b --detector-number 42 --band VR --catalog-dir DIR \
-    --velocity 0.1 0.5 --angle 0 359.99 --dx 10 --num-results 50 --refine-iterations 1
+deep-asteroids search run --night 20190402 --field A0b --detector-number 42 --band VR \
+    --velocity 0.1 0.5 --angle 0 359.99 --dx 10 --num-results 50 --refine-iterations 1 \
+    --shutter-offset-seconds 0.5 [--remove-catalogs]
 ```
 
 Before relying on the new engine build, a one-image check first, as for the
@@ -156,7 +175,7 @@ deterministic, reporting counts instead of one pass/fail:
 
 | level | check | expected |
 |---|---|---|
-| L0 detector | every distinct old `gathered` point matches a new catalog row in the same exposure within 0.05"; `flux`/`mag` agree; per-image detection counts | all match (the engine is deterministic, and the label is shared via Decision 1) |
+| L0 detector | every distinct old `gathered` point matches a new catalog row in the same exposure within 0.05"; `flux`/`mag` agree; per-image detection counts | all match (the engine is deterministic, and the time label is made equal via Decision 1) |
 | L1 Hough search | per `result_num`: `x, y, direction, n` | identical for all 50, in the same order (the CPU search is deterministic on the same catalog; **catalog row order matters** because ties in the Hough maximum may break by position, so we stack in the old image-id order) |
 | L2 refinement | `tracklet` parameters, `n1/n2/n5/n10`, and the gathered set per result | agree within the noise floor: first rerun the new search twice, seeded and unseeded, to measure it, then require old-vs-new differences within a small multiple of that floor |
 | L3 outputs | the same through `gathered`, `points`, the ingested rows | consistent with L2 |
@@ -190,7 +209,7 @@ files.
 
 ## Open questions
 
-1. D1-D3 above.
+1. D1-D3 are decided (above); what is open is deep-db issue #17's option (A, B or C), which only changes whether the shutter constant is 0.5 or 0 in the reproduction.
 2. Salad's timings are per-task wall time on shared nodes, with no CPU count
    recorded, so the CPU-hour figures are rough; the pilot gives real
    per-image and per-search numbers on a known allocation.
