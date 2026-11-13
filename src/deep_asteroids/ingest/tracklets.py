@@ -102,6 +102,16 @@ def _bind_nights(query, nights):
     return q.bindparams(bindparam("nights", expanding=True)) if nights is not None else q
 
 
+def _group_median(group, values, labels):
+    """The NaN-ignoring median of ``values`` within each of the sorted unique ``labels`` of ``group``
+    (NaN where a group has no finite value)."""
+    order = np.argsort(group, kind="stable")
+    g, v = group[order], np.asarray(values, dtype=float)[order]
+    starts = np.searchsorted(g, labels)
+    ends = np.r_[starts[1:], len(g)]
+    return np.array([np.nanmedian(v[a:b]) if np.isfinite(v[a:b]).any() else np.nan for a, b in zip(starts, ends)])
+
+
 def _fit_rows(fit, base):
     """KnownTracklet column dicts for each group of a ``fit_linear_tracklets`` result.
     ``base`` is a callable group_label -> dict of identity columns."""
@@ -129,7 +139,7 @@ def _fit_rows(fit, base):
 # --- synthetic ---------------------------------------------------------------
 
 SYNTHETIC_POINTS = """
-SELECT s.synthetic_object_id, n.night, e.midpoint_mjd, s.ra, s.dec, s.exposure_id
+SELECT s.synthetic_object_id, n.night, e.midpoint_mjd, s.ra, s.dec, s.exposure_id, s.mag
 FROM synthetic_object_ephemeris s
 JOIN exposure e ON e.id = s.exposure_id
 JOIN night n ON n.id = e.night_id
@@ -149,9 +159,9 @@ def synthetic_rows(deep_engine, nights=None):
     """``known_tracklet`` rows (dicts, without ``source``/provenance) for synthetic objects."""
     points = _fetch_array(
         deep_engine, _bind_nights(SYNTHETIC_POINTS.format(nights=_nights_clause(nights)), nights),
-        {"nights": list(nights)} if nights is not None else {}, ncols=6,
+        {"nights": list(nights)} if nights is not None else {}, ncols=7,
     )
-    obj, night, mjd_utc, ra, dec, exposure_id = points.T if len(points) else (np.empty(0),) * 6
+    obj, night, mjd_utc, ra, dec, exposure_id, mag = points.T if len(points) else (np.empty(0),) * 7
     obj = obj.astype(np.int64)
     night = night.astype(np.int64)
     exposure_id = exposure_id.astype(np.int64)
@@ -168,6 +178,8 @@ def synthetic_rows(deep_engine, nights=None):
 
     fit = fit_linear_tracklets(obj * NIGHT_BASE + night, t, ra, dec)
     rows = _fit_rows(fit, identity)
+    for row, m in zip(rows, _group_median(obj * NIGHT_BASE + night, mag, fit["group"]).tolist(), strict=True):
+        row["mag"] = None if m != m else m
     rows.extend(_binary_center_rows(obj, night, t, ra, dec, exposure_id, objects, binaries))
     return rows, len(points)
 
@@ -321,7 +333,7 @@ def mpc_observation_rows(deep_engine, nights=None):
 
 MPCHECKER_POINTS = """
 SELECT m.object_id, n.night, e.midpoint_mjd, m.ra, m.dec,
-       CASE WHEN m.detector_exposure_id IS NULL THEN 0 ELSE 1 END
+       CASE WHEN m.detector_exposure_id IS NULL THEN 0 ELSE 1 END, m.v_mag
 FROM mpchecker_ephemeris m
 JOIN exposure e ON e.id = m.exposure_id
 JOIN night n ON n.id = e.night_id
@@ -336,9 +348,9 @@ def mpchecker_rows(deep_engine, nights=None):
     on every predicted point -- on a detector or not -- with ``n_on_chip`` counting the former."""
     points = _fetch_array(
         deep_engine, _bind_nights(MPCHECKER_POINTS.format(nights=_nights_clause(nights)), nights),
-        {"nights": list(nights)} if nights is not None else {}, ncols=6,
+        {"nights": list(nights)} if nights is not None else {}, ncols=7,
     )
-    obj, night, mjd_utc, ra, dec, on_chip = points.T if len(points) else (np.empty(0),) * 6
+    obj, night, mjd_utc, ra, dec, on_chip, v_mag = points.T if len(points) else (np.empty(0),) * 7
     group = obj.astype(np.int64) * NIGHT_BASE + night.astype(np.int64)
     t = utc_to_tai(mjd_utc)
 
@@ -353,8 +365,9 @@ def mpchecker_rows(deep_engine, nights=None):
     labels, idx = np.unique(group, return_inverse=True)
     n_on_chip = np.bincount(idx, weights=on_chip, minlength=len(labels)).astype(int)
     rows = _fit_rows(fit, identity)
-    for row, n in zip(rows, n_on_chip.tolist(), strict=True):
+    for row, n, m in zip(rows, n_on_chip.tolist(), _group_median(group, v_mag, fit["group"]).tolist(), strict=True):
         row["n_on_chip"] = n
+        row["mag"] = None if m != m else m
     return rows, len(points)
 
 

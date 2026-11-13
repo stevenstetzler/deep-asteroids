@@ -237,3 +237,66 @@ def crossmatches(ctx, sources, nights, run_ids, max_mean_sep_arcsec, all_candida
                 members.setdefault(linked_id, []).append(trkid)
         for row in rows:
             out.write("|".join(str(fmt(v)) for v in (*row, ",".join(members.get(row[8], [])))) + "\n")
+
+
+RESULT_FIELDS = (
+    "run_id", "result_num", "authoritative", "group", "putative_real", "failed_cuts", "n_gathered",
+    "median_residual_arcsec", "speed", "sigma_v", "median_mag", "sep_submitted", "sep_synthetic", "sep_known",
+)
+
+
+@query.command()
+@click.option("--night", "nights", multiple=True, type=int)
+@click.option("--run-id", "run_ids", multiple=True, type=str)
+@click.option("--group", "groups", multiple=True,
+              type=click.Choice(["submitted", "synthetic", "known", "unmatched (in velocity range)",
+                                 "unmatched (outside velocity range)"]))
+@click.option("--putative-real/--not-putative-real", "putative_real", default=None,
+              help="Only results that pass (or fail) the putative-real cut")
+@click.option("--putative-new", is_flag=True, help="Only putative real results that match nothing")
+@click.option("--authoritative-only", is_flag=True,
+              help="Only the authoritative result of each de-duplication cluster")
+@click.option("--log10-residual", type=float, default=-0.2, show_default=True)
+@click.option("--min-gathered", type=int, default=10, show_default=True)
+@click.option("--max-gathered", type=int, default=150, show_default=True)
+@click.option("--limit", type=int, default=None, help="Only the first N results")
+@click.option("--header/--no-header", default=False, help="Print the field names first")
+@click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
+@click.pass_context
+def results(ctx, nights, run_ids, groups, putative_real, putative_new, authoritative_only, log10_residual,
+            min_gathered, max_gathered, limit, header, output):
+    """Print results with their statistics, group and putative-real call, '|'-separated.
+
+    Fields: run_id result_num authoritative group putative_real failed_cuts n_gathered
+    median_residual_arcsec speed sigma_v median_mag sep_submitted sep_synthetic sep_known (the closest
+    match of each kind, in arcsec). Needs `statistics` and `crossmatch`."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.cli.plot import classified, make_thresholds
+    from deep_asteroids.database import create_db
+
+    thresholds = make_thresholds(2.0, 2.0, 10.0, log10_residual, min_gathered, max_gathered)
+    with Session(create_db()) as session:
+        rows = classified(session, nights, run_ids, thresholds)
+    if groups:
+        rows = [r for r in rows if r.group in groups]
+    if putative_real is not None:
+        rows = [r for r in rows if bool(r.putative_real) == putative_real]
+    if putative_new:
+        rows = [r for r in rows if r.putative_new]
+    if authoritative_only:
+        rows = [r for r in rows if r.authoritative]
+    if limit is not None:
+        rows = rows[:limit]
+
+    def fmt(v):
+        return "" if v is None else int(v) if isinstance(v, bool) else v
+
+    with click.open_file(output or "-", "w") as out:
+        if header:
+            out.write("|".join(RESULT_FIELDS) + "\n")
+        for r in rows:
+            values = (r.run_id, r.result_num, r.authoritative, r.group, r.putative_real, ",".join(r.failed),
+                      r.n_gathered, r.median_residual_arcsec, r.speed, r.sigma_v, r.median_mag,
+                      r.best.get("mpc_linked"), r.best.get("synthetic"), r.best.get("mpchecker"))
+            out.write("|".join(str(fmt(v)) for v in values) + "\n")

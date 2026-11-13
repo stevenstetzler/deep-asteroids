@@ -149,6 +149,10 @@ class KnownTracklet(Base):
     # mpchecker: how many fitted points landed on a detector
     n_on_chip = Column(Integer)
 
+    # synthetic (primary/companion) and mpchecker: the median magnitude of the night's points (deep-db's
+    # ephemeris ``mag``/``v_mag``), the truth a recovery is compared with. NULL for the others.
+    mag = Column(Float)
+
     # mpc_linked: the group this row was built from
     n_members = Column(Integer)
     n_designations = Column(Integer)

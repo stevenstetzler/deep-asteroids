@@ -431,6 +431,61 @@ the linked one is closer in 38 of them). What it changes is the count of objects
 results match two or more fragments of the same object, so counting submitted objects
 without linking overcounts by 46%.
 
+## Result statistics, the putative-real filter, and plots
+
+```bash
+deep-asteroids statistics [--night N ...] [--run-id R ...] [--force]
+deep-asteroids summary [--night N ...] [--run-id R ...] [--all-results] [thresholds]
+deep-asteroids query results [--group G] [--putative-real|--not-putative-real] [--putative-new] [--authoritative-only] \
+    [--limit N] [--header] [--output FILE] [thresholds]
+deep-asteroids plot residuals|magnitudes --out FILE [--night N ...] [--run-id R ...] [--all-results] [thresholds]
+deep-asteroids plot completeness --out FILE [--source synthetic|mpchecker] [--min-exposure-fraction 0.5] \
+    [--radius-arcsec X] [--bin-width 0.5] [--night N ...] [--run-id R ...]
+```
+
+**`statistics`** fills `result_statistics`, one row per result, from its own gathered points and tracklet, with
+no cross-match: the **median residual** of its gathered points against its tracklet at each point's time (the
+main separator of real moving objects, a few tenths of an arcsec, from chance alignments, arcsec-scale),
+the number of points beyond 1" (`n_residual_outliers`), `n_gathered`, `n_times`, `speed` (`hypot(vra, vdec)`,
+comparable to a search's velocity range), `sigma_v`, and the `median_mag` of the points. It is one query and one
+vectorized pass per search run. On the 200 results of four runs where salad computed the same statistics
+(salad's table is empty for night 20190402, whose searches predate it), `n_gathered`, the outlier count and the
+median residual are **identical for all 200** (the residual bit-for-bit).
+
+**Groups and the putative-real cut** (`crossmatch/classify.py`, salad's). Each result is in exactly one group:
+`submitted` (a linked MPC tracklet within 2"), `synthetic` (within 2"; the closer wins if both),
+`known` (an mpchecker ephemeris within 10"), else unmatched, split by whether its speed is inside its search's
+velocity range. A result is **putative real** if its median residual is below 0.63" (`log10 < -0.2`), it has more
+than 10 and fewer than 150 gathered points, and its speed is strictly inside the search's range;
+**putative new** is putative real and unmatched. Every threshold is an option. Objects are counted as the
+authoritative result of each `dedup` cluster, so redetections and duplicate searches count once.
+
+On night 20190402 (60 searches, 3,053 results = 2,972 distinct objects), the cut keeps **100% of the submitted
+matches (329/329), 97% of the known (65/67) and 88% of the synthetic (139/158)**, the last because 18 of the 19
+it rejects fail the velocity cut: synthetic objects outside the search's designed speed range. Of the 1,415 unmatched objects in
+range, **363 are putative new** (they peak at magnitude 23.5-24.5, faint, where objects not yet submitted
+would be); the 1,003 unmatched outside the range fail the cut by definition, and 2,053 results fail the residual
+cut in all. `summary` prints this funnel; `query results` lists the rows.
+
+**`plot`** writes PNGs (examples for the night in `docs/examples/viz/night_20190402/`): `residuals` (log10
+median residual by group, with the cut marked: matched objects sit near 0.1", chance alignments near 4", the cut
+falls in the valley), `magnitudes` (each result's median magnitude by group, counts and normalized), and
+`completeness`: the fraction of **findable** synthetic (or mpchecker) objects that a result matched, against their
+truth magnitude (`known_tracklet.mag`, the median of the night's points), with Wilson 68% intervals. An object is
+findable only if its track is on a searched chip (tested geometrically against each exposure's chip footprint)
+for at least half of that search's exposures *and* its speed is inside the search's range, so objects on chips,
+fields or nights that were not searched are not counted as misses; it is recovered if a crossmatch candidate
+(2" synthetic, 10" mpchecker) exists for it. For the night: **269 findable synthetic objects, 138 recovered,
+~90-100% brighter than magnitude 24, 50% at 24.4, none fainter than 25**. As a check on the geometry, of the
+158 synthetic objects some result matched, 138 are counted findable; of the other 20, 18 are outside the search's
+speed range (so excluded by design, though a search sometimes finds them) and 2 cross a chip for under half the
+exposures (for mpchecker, 297 of 300). The
+mpchecker curve (374 findable, 297 recovered, 50% at 23.6) is less certain: its magnitude is a predicted V-band
+`v_mag`, not the survey's band, and its ephemerides have their own uncertainty.
+
+`examples/night_summary.sh` reproduces the whole night from scratch in about a minute (it needs salad's Postgres
+for the results).
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++

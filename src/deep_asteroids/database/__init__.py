@@ -79,6 +79,7 @@ def import_models():
     import deep_asteroids.database.models
     import deep_asteroids.database.search
     import deep_asteroids.database.search_run
+    import deep_asteroids.database.statistics
     import deep_asteroids.database.tracklets  # noqa: F401
 
 
