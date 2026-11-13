@@ -672,6 +672,11 @@ Not done here (follow-up #27 work): the index pages above the leaf (listing nigh
 bands, and the coverage/search-tracking pages from #26) -- this lays down the leaf page and its
 URL scheme first.
 
+`examples/package_ccd41_24.sh` reproduces the one page committed under `web/`
+(`web/results/20190402/A0b/ccd41/VR/24/`) end to end against the real registry/repo, the same
+way `examples/result_ccd41_24.sh` reproduces its `viz result` counterpart -- see
+`examples/README.md`.
+
 ## Known-object tracklets
 
 ```bash
