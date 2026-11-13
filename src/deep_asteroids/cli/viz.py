@@ -82,3 +82,33 @@ def tracklet(ctx, source, night, trkid, orbit_id, component, provid, permid, out
             summary = visualize_tracklet(session, deep_engine, engine, t, this_out_dir,
                                          product_type=product_type, cutout_size=cutout_size, annotate=annotate)
             click.echo(summary.format())
+
+
+@viz.command()
+@click.option("--night", required=True, type=int)
+@click.option("--out-dir", required=True, type=click.Path(file_okay=False), help="Where to write the figures")
+@click.option("--min-members", type=int, default=2, show_default=True,
+              help="Only linked tracklets built from at least this many MPC tracklets")
+@click.option("--linked-id", "linked_ids", multiple=True, type=int,
+              help="Only this mpc_linked known_tracklet id (repeatable)")
+@click.option("--limit", type=int, default=None, help="Only the first N (largest groups first)")
+@click.option("--sheets/--no-sheets", default=True, show_default=True, help="Also tile the figures into contact sheets")
+@click.pass_context
+def linked(ctx, night, out_dir, min_members, linked_ids, limit, sheets):
+    """RA/Dec plots of the linked MPC tracklets, one figure each, for checking `link`.
+
+    Each shows every member trkid's observations and fit separately, the merged
+    fit, and how far each member's fit is from the merged one over the night's
+    exposures. Needs `ingest tracklets mpc-observations` and `link` done for the night."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import get_db, get_deep_db
+    from deep_asteroids.viz.linked import visualize_linked
+
+    with Session(get_db()) as session:
+        summary = visualize_linked(session, get_deep_db(), night, out_dir, min_members=min_members,
+                                   linked_ids=linked_ids or None, limit=limit, sheets=sheets)
+    if not summary.n_groups:
+        raise click.ClickException(f"no linked tracklet with at least {min_members} members on night {night} "
+                                   "(run `link --night` first?)")
+    click.echo(summary.format() + f" in {out_dir}")

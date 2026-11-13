@@ -399,6 +399,22 @@ the others differ at the margin (the pairs salad joins and we do not are 1.0 to 
 apart on average, against our 1.0" radius), and the six trkids only we link are 3 or 4
 observations over a few minutes.
 
+```bash
+deep-asteroids viz linked --night N --out-dir DIR [--min-members 2] [--linked-id ID ...] [--limit N] [--no-sheets]
+```
+
+`viz linked` draws one figure per merged tracklet, for checking the link: a RA/Dec
+panel with each member's own observations (re-read from deep-db) and its own fit
+(solid where observed, dashed across the night), under the merged fit; and a panel
+with how far each member's fit is from the merged one at every exposure of the night,
+each member's observed span shaded. It also tiles the figures into contact sheets.
+Examples for night 20190402 are in `docs/examples/viz/linked_20190402/`. All 95
+merged groups of that night pass two checks: every observation of every member lies
+within 0.49" of its group's merged fit (the median group's median is 0.06"), and of
+the 36 groups with designated members none joins two different designations (89
+designated members joined consistently); the other 59 groups are undesignated, so the
+geometry alone vouches for them.
+
 What linking does and does not do for matching, measured on that night's 3,003
 results (the same results matched against linked and against unlinked tracklets): the
 **set of results that match a submitted tracklet is identical at every radius from 1" up**

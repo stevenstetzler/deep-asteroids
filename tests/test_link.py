@@ -240,3 +240,38 @@ def test_cli(db_url, deep_engine, monkeypatch):
 
     sources = runner.invoke(main, ["query", "tracklets", "source", "n_members", "--source", "mpc_linked"])
     assert sorted(sources.output.split()) == ["mpc_linked|1"] * 2 + ["mpc_linked|2"] * 3
+
+
+def test_visualize_linked_writes_a_figure_per_merged_group(session, deep_engine, tmp_path):
+    from deep_asteroids.viz.linked import load_groups, visualize_linked
+
+    link_mpc_tracklets(session, deep_engine, [NIGHT])
+    groups = load_groups(session, NIGHT)
+    assert sorted(tuple(m["trkid"] for m in g.members) for g in groups) == [("D1", "D2"), ("S1", "S2"), ("X1", "X2")]
+    assert [g.linked["n_members"] for g in groups] == [2, 2, 2] and all(g.linked["night"] == NIGHT for g in groups)
+
+    summary = visualize_linked(session, deep_engine, NIGHT, tmp_path)
+    figures = [p for p in summary.paths if not p.name.startswith("contact")]
+    assert summary.n_groups == 3 and len(figures) == 3 and "3 figure(s)" in summary.format()
+    assert all(p.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and p.stat().st_size > 10_000 for p in summary.paths)
+    assert [p.name for p in summary.paths if p.name.startswith("contact")] == ["contact_sheet_01.png"]
+
+    one = visualize_linked(session, deep_engine, NIGHT, tmp_path / "one", linked_ids=[groups[0].linked["id"]],
+                           sheets=False)
+    assert one.n_groups == 1 and len(list((tmp_path / "one").iterdir())) == 1
+    assert visualize_linked(session, deep_engine, NIGHT, tmp_path / "none", min_members=3).n_groups == 0
+    assert visualize_linked(session, deep_engine, NIGHT, tmp_path / "lim", limit=2, sheets=False).n_groups == 2
+
+
+def test_viz_linked_cli(db_url, deep_engine, monkeypatch, tmp_path):
+    from deep_asteroids.util.deep_db import sqlite_readonly_url
+
+    monkeypatch.setenv("DEEP_DB", sqlite_readonly_url(deep_engine.url.database))
+    runner = CliRunner()
+    assert runner.invoke(main, ["ingest", "tracklets", "mpc-observations"]).exit_code == 0
+    out = runner.invoke(main, ["viz", "linked", "--night", str(NIGHT), "--out-dir", str(tmp_path / "v")])
+    assert out.exit_code != 0 and "no linked tracklet" in out.output  # not linked yet
+    assert runner.invoke(main, ["link"]).exit_code == 0
+    out = runner.invoke(main, ["viz", "linked", "--night", str(NIGHT), "--out-dir", str(tmp_path / "v"), "--no-sheets"])
+    assert out.exit_code == 0, out.output
+    assert "3 figure(s) written" in out.output and len(list((tmp_path / "v").glob("linked_*.png"))) == 3
