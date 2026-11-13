@@ -231,3 +231,39 @@ def test_unlinked_mpc_tracklets_are_matched_only_when_asked_for(session):
     counts = match_counts(session, ["run"])
     assert "mpc_observation" in counts and "mpc_linked" not in counts  # only what the run used is reported
     assert 'submitted (unlinked) < 2"' in match_table(counts)
+
+
+def test_matching_linked_tracklets_needs_them_to_exist(session):
+    """MPC tracklets that were never linked must be an error, not a silently empty 'submitted' source."""
+    from deep_asteroids.crossmatch.match import NotLinkedError
+
+    h.add_definition(session, "run")
+    h.add_run(session, "run", [_result()])
+    _known(session, source="mpc_observation", trkid="unlinked")
+    _known(session, source="mpchecker", provid="2000 AA")
+    with pytest.raises(NotLinkedError, match="link --night 20190402"):
+        crossmatch_results(session)
+    assert _candidates(session) == [] and session.scalars(select(CrossmatchRun)).all() == []  # nothing half-done
+
+    # the unlinked ones, or the other sources alone, can still be asked for explicitly
+    assert crossmatch_results(session, sources=("mpc_observation",)).n_candidates == 1
+    assert crossmatch_results(session, sources=("mpchecker",), force=True).runs == ["run"]
+    # a night with no MPC tracklets at all is not an error
+    h.add_definition(session, "run2", detector=2, night=20190403)
+    h.add_run(session, "run2", [_result()])
+    assert crossmatch_results(session, run_ids=["run2"]).runs == ["run2"]
+    # and once linked, the default works
+    _known(session, source="mpc_linked", n_members=1)
+    assert crossmatch_results(session, run_ids=["run"], force=True).runs == ["run"]
+
+
+def test_cli_reports_unlinked_nights(db_url):
+    runner = CliRunner()
+    with Session(create_db()) as session:
+        h.add_definition(session, "run")
+        h.add_run(session, "run", [_result()])
+        _known(session, source="mpc_observation", trkid="unlinked")
+        session.commit()
+    out = runner.invoke(main, ["crossmatch"])
+    assert out.exit_code != 0 and "run `deep-asteroids link --night 20190402` first" in out.output
+    assert runner.invoke(main, ["crossmatch", "mpc-observations"]).exit_code == 0

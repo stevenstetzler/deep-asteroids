@@ -42,6 +42,10 @@ LABELS = {
 DEFAULT_SOURCES = ("mpc_linked", "mpchecker", "synthetic")
 
 
+class NotLinkedError(ValueError):
+    """A night has fitted MPC tracklets but none linked, and the cross-match was asked to use the linked ones."""
+
+
 @dataclass
 class CrossmatchSummary:
     runs: list = field(default_factory=list)
@@ -120,6 +124,16 @@ def crossmatch_results(session, nights=None, run_ids=None, sources=DEFAULT_SOURC
         if done is not None and not force:
             summary.skipped_runs.append(run_id)
             continue
+
+        if "mpc_linked" in sources:
+            # an empty submitted source must not look like "nothing matched"
+            has = {src: session.scalar(select(KnownTracklet.id).where(
+                KnownTracklet.source == src, KnownTracklet.night == night, KnownTracklet.epoch.is_not(None)).limit(1))
+                is not None for src in ("mpc_observation", "mpc_linked")}
+            if has["mpc_observation"] and not has["mpc_linked"]:
+                raise NotLinkedError(
+                    f"night {night} has MPC tracklets but none are linked: run `deep-asteroids link --night {night}` "
+                    "first (or cross-match the unlinked ones with `mpc-observations`)")
 
         result_ids = session.scalars(select(Result.id).join(Search, Search.id == Result.search_id)
                                      .where(Search.run_id == run_id)).all()

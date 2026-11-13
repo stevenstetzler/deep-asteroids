@@ -293,7 +293,7 @@ image cold), the search 10 s, the ingest 3 s, and the peak memory was 557 MB
 
 ```bash
 deep-asteroids dedup [--night N ...] [--field F ...] [--run-id R ...] [--merge-radius-arcsec 2] [--force]
-deep-asteroids crossmatch [synthetic|mpc-observations|mpc-ephemeris ...] [--night N ...] [--run-id R ...] \
+deep-asteroids crossmatch [mpc-linked|mpc-observations|mpc-ephemeris|synthetic ...] [--night N ...] [--run-id R ...] \
     [--max-sep-arcsec 30] [--submitted-radius-arcsec 2] [--known-radius-arcsec 10] [--synthetic-radius-arcsec 2] [--force]
 deep-asteroids query crossmatches [--source S] [--night N] [--run-id R] [--max-mean-sep-arcsec X] [--all] \
     [--authoritative-only] [--header] [--output FILE]
@@ -315,8 +315,13 @@ those runs' results.
 **`crossmatch`** matches each result's tracklet against every fitted
 `known_tracklet` of the same night, evaluating both at the search's exposure
 times (deep-db's UTC midpoints, in TAI; no offset anywhere). The sources are
-the submitted observations (`mpc_observation`), the known objects
-(`mpchecker` ephemerides) and the synthetic (fake) objects. Every pair below
+the submitted observations, matched as **linked** tracklets (`mpc_linked`, one
+per object's night, from `deep-asteroids link` below: the pieces of an object
+split across trkids are merged and refit, so run `link` first; the default sources
+are `mpc-linked`, `mpc-ephemeris` and `synthetic`, and a night that has MPC tracklets
+but none linked is an error, not a silently empty source), the known objects
+(`mpchecker` ephemerides) and the synthetic (fake) objects. The per-trkid
+`mpc-observations` can still be matched explicitly. Every pair below
 `--max-sep-arcsec` mean separation is stored in `crossmatch`, with its mean,
 minimum, maximum and total separation and the velocity difference: all
 candidates, not just the closest, since one result often matches both a

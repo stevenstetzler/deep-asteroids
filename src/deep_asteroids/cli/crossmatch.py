@@ -75,14 +75,17 @@ def crossmatch(ctx, sources, nights, run_ids, max_sep_arcsec, force, submitted_r
     Re-running skips runs already done unless --force."""
     from sqlalchemy.orm import Session
 
-    from deep_asteroids.crossmatch.match import DEFAULT_SOURCES, crossmatch_results, match_counts
+    from deep_asteroids.crossmatch.match import DEFAULT_SOURCES, NotLinkedError, crossmatch_results, match_counts
     from deep_asteroids.database import create_db
 
     radii = _radii(submitted_radius_arcsec, known_radius_arcsec, synthetic_radius_arcsec)
     chosen = tuple(MATCH_SOURCES[s] for s in sources) if sources else DEFAULT_SOURCES
     with Session(create_db()) as session:
-        summary = crossmatch_results(session, nights=nights, run_ids=run_ids, sources=chosen,
-                                     max_sep_arcsec=max_sep_arcsec, force=force)
+        try:
+            summary = crossmatch_results(session, nights=nights, run_ids=run_ids, sources=chosen,
+                                         max_sep_arcsec=max_sep_arcsec, force=force)
+        except NotLinkedError as error:
+            raise click.ClickException(str(error)) from error
         counts = match_counts(session, summary.runs + summary.skipped_runs, radii) \
             if summary.runs + summary.skipped_runs else None
     click.echo(summary.format(counts, radii))
