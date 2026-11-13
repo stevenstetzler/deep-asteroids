@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from deep_asteroids.cli import main
 from deep_asteroids.database import create_db
-from deep_asteroids.web.site import band_slug, package_result, result_dir
+from deep_asteroids.web.site import band_slug, package_result, render_result_pdf, result_dir
 
 
 @pytest.fixture
@@ -53,12 +53,28 @@ def test_package_result_renders_and_caches(session, definition, result_num, tmp_
     for img in ("light_curve.png", "coadd.png", "movie.gif", "sky.png"):
         assert img in page and (path.parent / img).exists()
 
+    pdf = path.parent / "report.pdf"
+    assert pdf.exists() and pdf.stat().st_size > 0
+    assert 'href="report.pdf"' in page and "Download PDF" in page
+
     again_skipped, again_path = package_result(session, h.FakeCutoutEngine(), definition, result_num, tmp_path)
     assert again_skipped and again_path == path
 
     forced_skipped, forced_path = package_result(session, h.FakeCutoutEngine(), definition, result_num, tmp_path,
                                                  force=True)
     assert not forced_skipped and forced_path == path
+
+
+def test_render_result_pdf_needs_sky_coadd_light_curve(session, definition, result_num, tmp_path):
+    from deep_asteroids.viz.result import visualize_result
+
+    out_dir = tmp_path / "out"
+    summary = visualize_result(session, h.FakeCutoutEngine(), h.RUN_ID, result_num, out_dir)
+    pdf_path = render_result_pdf(definition, h.RUN_ID, result_num, summary, None, out_dir)
+    assert pdf_path is not None and pdf_path.name == "report.pdf" and pdf_path.exists()
+
+    summary.artifacts.pop("coadd")
+    assert render_result_pdf(definition, h.RUN_ID, result_num, summary, None, out_dir) is None
 
 
 def test_package_result_missing_result(session, definition, tmp_path):

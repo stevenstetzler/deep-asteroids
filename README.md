@@ -643,9 +643,21 @@ undefined-band union) is the search performed on it -- today a 1:1 `search_defin
 but its own directory level in case a data subset is ever searched more than one way; `<result_
 num>` is the result itself. Each page embeds the same four plots `viz result` renders
 (`light_curve.png`/`coadd.png`/`movie.gif`/`sky.png`) plus a small table of the result's own
-stats (`n`, `vra`/`vdec`, `sigma_v`). Selects search definitions the same way `search run` does;
-every one of their results is packaged unless `--result-num` narrows it. A page that already
-exists is left alone (the cache) unless `--force`.
+stats (`n`, `vra`/`vdec`, `sigma_v`), in equal-width columns (summary | sky | coadd | light
+curve | movie) that the browser wraps row-to-column on its own as the window narrows -- no JS,
+no explicit mobile breakpoint, just a shared `min-width` on every column. Every plot's CSS
+height matches the movie's own rendered height, so they line up regardless of each plot's own
+aspect ratio. Selects search definitions the same way `search run` does; every one of their
+results is packaged unless `--result-num` narrows it. A page that already exists is left alone
+(the cache) unless `--force`.
+
+A "Download PDF" button (top right) links to a pre-rendered, one-page `report.pdf` written
+alongside `index.html` (`render_result_pdf()`, matplotlib's own PDF backend -- no extra PDF
+software needed): a fixed 10in x 7.5in layout with the title across the top, the summary stats
+on the left (2.5in wide, full content height), the sky plot above the light curve on the right
+(5in wide, 3.5in each), and the coadd to the right of those (2.5in x 2.5in), vertically centered.
+Skipped (the page gets no button) if any of sky/coadd/light curve didn't render, e.g. no cutouts
+survived.
 
 Not done here (follow-up #27 work): the index pages above the leaf (listing nights, fields, CCDs,
 bands, and the coverage/search-tracking pages from #26) -- this lays down the leaf page and its

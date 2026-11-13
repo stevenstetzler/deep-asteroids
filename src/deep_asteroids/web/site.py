@@ -12,7 +12,8 @@ performed on it -- today a 1:1 `search_definition`/`run_id`, but a
 directory of its own in case a data subset is ever searched more than one
 way; ``<result_num>`` is the result itself. No server, no database at
 request time: `deep-asteroids package` renders each page's four plots with
-`viz/result.py` and writes a small HTML page alongside them, and running it
+`viz/result.py`, a pre-rendered one-page PDF report (``render_result_pdf()``),
+and a small HTML page linking both (``render_result_page()``), and running it
 again skips any page that already exists (its own cache) unless ``--force``.
 """
 import html
@@ -33,6 +34,18 @@ _ARTIFACT_LABELS = (
 
 _DEFAULT_IMG_HEIGHT_PX = 220
 _COLUMN_MIN_WIDTH_PX = 220
+
+# the one-page PDF report's layout, in inches -- see render_result_pdf()
+_PDF_WIDTH_IN = 10.0
+_PDF_HEIGHT_IN = 7.5
+_PDF_TITLE_HEIGHT_IN = 0.5
+_PDF_SUMMARY_WIDTH_IN = 2.5
+_PDF_PLOT_COLUMN_WIDTH_IN = 5.0
+_PDF_SKY_HEIGHT_IN = 3.5
+_PDF_LIGHT_CURVE_HEIGHT_IN = 3.5
+_PDF_COADD_WIDTH_IN = 2.5
+_PDF_COADD_HEIGHT_IN = 2.5
+_PDF_FILENAME = "report.pdf"
 
 
 def band_slug(band):
@@ -78,20 +91,11 @@ def _movie_height_px(summary):
     return _DEFAULT_IMG_HEIGHT_PX
 
 
-def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
-    """Writes ``index.html`` in ``out_dir``, referencing the artifacts ``summary`` already
-    wrote there (relative paths -- the page and its images are always deployed together).
-
-    Plain equal-width flex columns -- summary | sky | coadd | light curve | movie -- with no
-    explicit mobile breakpoint: each column has the same ``min-width``, so the browser wraps
-    row to column on its own as space runs out, from a wide desktop window down to a phone.
-    Every plot is set to the movie's own rendered height (``width: auto`` alongside it) so
-    they all line up regardless of each plot's own aspect ratio. Returns the path."""
-    esc = html.escape
-    title = f"{esc(run_id)} result {result_num}"
+def _stats_rows(sd, result_num, summary, stats):
+    """``[(label, value), ...]`` shared by the HTML table and the PDF summary panel."""
     rows = [
-        ("night", sd.night), ("field", esc(sd.field)), ("detector_number", sd.detector_number),
-        ("band", esc(sd.band) if sd.band else "(all)"), ("run_id", esc(run_id)), ("result_num", result_num),
+        ("night", sd.night), ("field", sd.field), ("detector_number", sd.detector_number),
+        ("band", sd.band if sd.band else "(all)"), ("run_id", sd.run_id), ("result_num", result_num),
     ]
     if stats is not None:
         n, vra, vdec, sigma_v = stats
@@ -103,13 +107,35 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
         ("exposures touched", summary.n_exposures_touched), ("images found", summary.n_images_found),
         ("measurements", len(summary.measurements)),
     ]
-    table = "\n".join(f"      <tr><th>{esc(str(k))}</th><td>{v}</td></tr>" for k, v in rows)
+    return rows
+
+
+def render_result_page(sd, run_id, result_num, summary, stats, out_dir, pdf_path=None):
+    """Writes ``index.html`` in ``out_dir``, referencing the artifacts ``summary`` already
+    wrote there (relative paths -- the page and its images are always deployed together).
+
+    Plain equal-width flex columns -- summary | sky | coadd | light curve | movie -- with no
+    explicit mobile breakpoint: each column has the same ``min-width``, so the browser wraps
+    row to column on its own as space runs out, from a wide desktop window down to a phone.
+    Every plot is set to the movie's own rendered height (``width: auto`` alongside it) so
+    they all line up regardless of each plot's own aspect ratio. If ``pdf_path`` is given, a
+    "Download PDF" button (top right, next to the title) links to it. Returns the path."""
+    esc = html.escape
+    title = f"{esc(run_id)} result {result_num}"
+    table = "\n".join(
+        f"      <tr><th>{esc(str(k))}</th><td>{esc(str(v))}</td></tr>"
+        for k, v in _stats_rows(sd, result_num, summary, stats)
+    )
     figures = "\n".join(
         f'    <figure class="col"><img src="{esc(Path(summary.artifacts[kind]).name)}" alt="{esc(label)}">'
         f"<figcaption>{esc(label)}</figcaption></figure>"
         for kind, label in _ARTIFACT_LABELS if kind in summary.artifacts
     )
     img_height = _movie_height_px(summary)
+    pdf_button = (
+        f'<a class="pdf-button" href="{esc(Path(pdf_path).name)}" download>Download PDF</a>'
+        if pdf_path is not None else ""
+    )
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -118,7 +144,12 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
   <title>{title}</title>
   <style>
     body {{ font-family: sans-serif; margin: 2em; background: #fafafa; color: #111; }}
-    .columns {{ display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5em; }}
+    .page-header {{ display: flex; justify-content: space-between; align-items: center; gap: 1em; }}
+    .page-header h1 {{ margin: 0; }}
+    .pdf-button {{ flex: none; padding: 0.5em 1em; background: #2563eb; color: #fff; text-decoration: none;
+                  border-radius: 0.3em; font-size: 0.9em; white-space: nowrap; }}
+    .pdf-button:hover {{ background: #1d4ed8; }}
+    .columns {{ display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5em; margin-top: 1.5em; }}
     .col {{ flex: 1 1 {_COLUMN_MIN_WIDTH_PX}px; min-width: {_COLUMN_MIN_WIDTH_PX}px; margin: 0; }}
     .col h2 {{ font-size: 1em; font-weight: normal; color: #555; margin: 0 0 0.5em 0; }}
     .col img {{ height: {img_height}px; width: auto; max-width: 100%; display: block; margin: 0 auto;
@@ -130,7 +161,10 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
   </style>
 </head>
 <body>
-  <h1>{title}</h1>
+  <div class="page-header">
+    <h1>{title}</h1>
+    {pdf_button}
+  </div>
   <div class="columns">
     <div class="col">
       <h2>Summary</h2>
@@ -147,6 +181,66 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "index.html"
     path.write_text(page)
+    return path
+
+
+def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
+    """Writes a one-page, pre-rendered ``report.pdf`` in ``out_dir``: title across the top,
+    the summary stats on the left (``_PDF_SUMMARY_WIDTH_IN`` wide), the sky plot above the
+    light curve on the right (``_PDF_PLOT_COLUMN_WIDTH_IN`` wide, each
+    ``_PDF_SKY_HEIGHT_IN``/``_PDF_LIGHT_CURVE_HEIGHT_IN`` tall), and the coadd to the right of
+    those, vertically centered. Needs ``sky``/``coadd``/``light_curve`` in
+    ``summary.artifacts``; returns ``None`` if any are missing (e.g. no cutouts survived)."""
+    needed = ("sky", "coadd", "light_curve")
+    if not all(kind in summary.artifacts for kind in needed):
+        return None
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    content_height_in = _PDF_HEIGHT_IN - _PDF_TITLE_HEIGHT_IN
+
+    def axes_in(x_in, y_from_top_in, w_in, h_in):
+        """An Axes placed by its box in inches, measured from the page's top-left."""
+        left = x_in / _PDF_WIDTH_IN
+        bottom = (_PDF_HEIGHT_IN - y_from_top_in - h_in) / _PDF_HEIGHT_IN
+        return fig.add_axes([left, bottom, w_in / _PDF_WIDTH_IN, h_in / _PDF_HEIGHT_IN])
+
+    fig = plt.figure(figsize=(_PDF_WIDTH_IN, _PDF_HEIGHT_IN))
+
+    title_ax = axes_in(0, 0, _PDF_WIDTH_IN, _PDF_TITLE_HEIGHT_IN)
+    title_ax.axis("off")
+    title_ax.text(0.0, 0.5, f"{run_id} result {result_num}", fontsize=16, va="center", ha="left",
+                  transform=title_ax.transAxes)
+
+    summary_ax = axes_in(0, _PDF_TITLE_HEIGHT_IN, _PDF_SUMMARY_WIDTH_IN, content_height_in)
+    summary_ax.axis("off")
+    rows = _stats_rows(sd, result_num, summary, stats)
+    text = "\n".join(f"{k}:  {v}" for k, v in rows)
+    summary_ax.text(0.0, 1.0, text, fontsize=9, va="top", ha="left", linespacing=1.8,
+                    transform=summary_ax.transAxes)
+
+    sky_ax = axes_in(_PDF_SUMMARY_WIDTH_IN, _PDF_TITLE_HEIGHT_IN, _PDF_PLOT_COLUMN_WIDTH_IN, _PDF_SKY_HEIGHT_IN)
+    sky_ax.imshow(plt.imread(summary.artifacts["sky"]), aspect="auto")
+    sky_ax.axis("off")
+
+    light_curve_ax = axes_in(_PDF_SUMMARY_WIDTH_IN, _PDF_TITLE_HEIGHT_IN + _PDF_SKY_HEIGHT_IN,
+                             _PDF_PLOT_COLUMN_WIDTH_IN, _PDF_LIGHT_CURVE_HEIGHT_IN)
+    light_curve_ax.imshow(plt.imread(summary.artifacts["light_curve"]), aspect="auto")
+    light_curve_ax.axis("off")
+
+    coadd_y_from_top = _PDF_TITLE_HEIGHT_IN + (content_height_in - _PDF_COADD_HEIGHT_IN) / 2
+    coadd_ax = axes_in(_PDF_SUMMARY_WIDTH_IN + _PDF_PLOT_COLUMN_WIDTH_IN, coadd_y_from_top,
+                       _PDF_COADD_WIDTH_IN, _PDF_COADD_HEIGHT_IN)
+    coadd_ax.imshow(plt.imread(summary.artifacts["coadd"]), aspect="auto")
+    coadd_ax.axis("off")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / _PDF_FILENAME
+    fig.savefig(path)
+    plt.close(fig)
     return path
 
 
@@ -167,5 +261,6 @@ def package_result(session, engine, sd, result_num, web_dir, product_type="diffe
     if summary is None:
         return False, None
     stats = _result_stats(session, sd.run_id, result_num)
-    render_result_page(sd, sd.run_id, result_num, summary, stats, out_dir)
+    pdf_path = render_result_pdf(sd, sd.run_id, result_num, summary, stats, out_dir)
+    render_result_page(sd, sd.run_id, result_num, summary, stats, out_dir, pdf_path=pdf_path)
     return False, index_path

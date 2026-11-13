@@ -6,7 +6,12 @@
   <title>deep-decam-A0b-ccd41-20190402-VR result 24</title>
   <style>
     body { font-family: sans-serif; margin: 2em; background: #fafafa; color: #111; }
-    .columns { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5em; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; gap: 1em; }
+    .page-header h1 { margin: 0; }
+    .pdf-button { flex: none; padding: 0.5em 1em; background: #2563eb; color: #fff; text-decoration: none;
+                  border-radius: 0.3em; font-size: 0.9em; white-space: nowrap; }
+    .pdf-button:hover { background: #1d4ed8; }
+    .columns { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5em; margin-top: 1.5em; }
     .col { flex: 1 1 220px; min-width: 220px; margin: 0; }
     .col h2 { font-size: 1em; font-weight: normal; color: #555; margin: 0 0 0.5em 0; }
     .col img { height: 204px; width: auto; max-width: 100%; display: block; margin: 0 auto;
@@ -18,7 +23,10 @@
   </style>
 </head>
 <body>
-  <h1>deep-decam-A0b-ccd41-20190402-VR result 24</h1>
+  <div class="page-header">
+    <h1>deep-decam-A0b-ccd41-20190402-VR result 24</h1>
+    <a class="pdf-button" href="report.pdf" download>Download PDF</a>
+  </div>
   <div class="columns">
     <div class="col">
       <h2>Summary</h2>
