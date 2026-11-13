@@ -64,23 +64,18 @@ only to compensate for deep-db access; `known_tracklet` is already fit.
 
 ## Decisions
 
-**D1. Salad's timestamps are 32.184 s early.** Salad's result times are
-TAI-labelled but true TAI is 32.184 s later (see the README note).
-Evaluating a result tracklet at "exposure midpoint converted UTC to TAI"
-(what a naive crossmatch does, and what salad's did) puts it 69.184 s
-(the 37 s UTC-to-TAI step plus the 32.184 s error) from where the object
-actually was: ~0.7" for a 0.26 deg/day mover, not small against a 2"
-known radius. The correct time for a salad result at an exposure is the
-UTC midpoint minus 32.184 s.
-- *Option A (proposed):* keep values verbatim (the #13 policy) and add a
-  small `results_ingest` provenance table, one row per run_id: source
-  database, ingest time, `time_offset_seconds` (32.184 for salad, 0 for
-  native deep-asteroids searches). The crossmatch and the plots read the
-  offset from it. Nothing is rewritten, and the offset is visible in SQL.
-- *Option B:* rewrite `tracklet`/`gathered`/`points` times at ingest
-  (and `ra_0`/`dec_0` to match). The data then lines up with everything
-  else with no special-casing, but the table no longer mirrors salad, and
-  a mistaken correction is harder to undo.
+**D1. Time convention for salad's results (resolved; see #18).** An
+earlier version of this plan assumed salad's result times are 32.184 s
+early. They are not: synthetic objects recovered on 20190402 match the
+results' tracklets to a median 0.03" with an implied time offset of
+-0.18 +/- 0.22 s. The only offset is the 0.5 s DECam shutter label salad's
+detection engine adds. So a result is evaluated at an exposure's deep-db
+UTC midpoint converted to TAI, plus 0.5 s, with no rewrite of the data. The
+0.5 s is the one per-source constant; a native deep-asteroids search that
+does not add it uses 0. It is stored per run, in a small `results_ingest`
+provenance table (run_id, source database, ingest time,
+`shutter_offset_seconds`), so the crossmatch reads it instead of
+hard-coding salad.
 
 **D2. Is redetection dedup in scope?** The issue lists only ingest and
 crossmatch, but without dedup one real object appears in many adjacent
@@ -125,7 +120,7 @@ night against the salad numbers above.
 ### 1. Ingest the full survey's results (pilot, then full)
 
 No new ingest logic is needed (`ingest results` from #13). New work:
-- `results_ingest` provenance table (D1).
+- `results_ingest` provenance table (D1): run_id, source, ingest time, `shutter_offset_seconds` (0.5 for salad).
 - **Scale**: 22.5M rows through SQLAlchemy `insertmanyvalues`. The
   20190402 run took ~43 s for 460k rows, which projects to roughly an
   hour for the survey, to be measured, not assumed. It is resumable
@@ -163,7 +158,7 @@ Algorithm, per night:
    exposure times from `search_definition_exposure`).
 2. For each search, predict the result tracklets and the known
    tracklets at that search's exposure midpoints (UTC to TAI, minus the
-   D1 offset for the result side) and take great-circle separations.
+   D1's 0.5 s shutter offset for the result side) and take great-circle separations.
 3. Avoid the all-pairs product: prefilter with a KD-tree on unit vectors
    at the search's mid-exposure, with radius = cutoff + the largest
    motion over the baseline, then compute the exact mean separation only
@@ -173,8 +168,8 @@ Algorithm, per night:
 
 Tests: synthetic fixture with a result built exactly on a known tracklet
 (match at ~0"), one 1" off, one far away, and a result on the wrong night;
-time-offset handling (a result shifted by 32.184 s matches only after the
-offset is applied); idempotence/`--force`.
+the shutter offset (a result labelled 0.5 s late matches at ~0" only after
+the offset is applied); idempotence/`--force`.
 
 Validation on 20190402 against salad's best-match counts by source, with
 the expected differences listed rather than hidden: no refit, no trksub
