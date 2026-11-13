@@ -11,8 +11,8 @@ early (-) relative to the truth. Only objects faster than --min-speed deg/day ar
 since a slow object's position says little about time.
 
 Needs ``ingest searches``, ``ingest tracklets synthetic`` and ``ingest results`` for NIGHT.
-Prints the median offset, which for salad's results is about -0.2 s: the 0.5 s shutter
-label its detection engine adds (see README), and nothing more.
+Prints the median offset. For salad's results on night 20190402 it is about -0.2 s, within a
+fraction of a second of zero (the standard error is printed too).
 """
 import argparse
 

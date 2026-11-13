@@ -77,19 +77,16 @@ def detect(ctx, run_ids, night, field_, detector_number, band, catalog_dir, thre
 @click.option("--refine-iterations", type=int, default=1, show_default=True)
 @click.option("--seed", type=int, default=0, show_default=True,
               help="Seeds numpy's RNG around the refinement (restored afterwards), so reruns repeat")
-@click.option("--shutter-offset-seconds", type=float, default=0.0, show_default=True,
-              help="Added to deep-db's exposure midpoint to label each exposure. 0 once deep-db's midpoint "
-                   "includes the DECam shutter latency; 0.5 reproduces salad's earlier run")
 @click.option("--force", is_flag=True, help="Replace runs that already exist")
 @click.option("--remove-catalogs", is_flag=True,
               help="Delete this search's own catalog files once its results are ingested")
 @click.pass_context
 def run(ctx, run_ids, night, field_, detector_number, band, catalog_dir, threshold, polarity, workers, velocity,
-        angle, dx, num_results, refine_iterations, seed, shutter_offset_seconds, force, remove_catalogs):
+        angle, dx, num_results, refine_iterations, seed, force, remove_catalogs):
     """Detect (any missing catalogs), search and ingest the selected search definitions.
 
     Each run lands under its search definition's run_id, with a search_run
-    row recording the seed, the time offset and what each stage cost.
+    row recording the seed and what each stage cost.
     Re-running skips run_ids already searched unless --force."""
     from sqlalchemy.orm import Session
 
@@ -105,7 +102,7 @@ def run(ctx, run_ids, night, field_, detector_number, band, catalog_dir, thresho
             summary = run_search_for_definition(
                 session, sd, catalog_dir, detector, velocity=velocity, angle=angle, dx=dx,
                 num_results=num_results, refine_iterations=refine_iterations, seed=seed,
-                shutter_offset_seconds=shutter_offset_seconds, workers=workers, force=force,
+                workers=workers, force=force,
                 remove_catalogs_after=remove_catalogs,
             )
             click.echo(summary.format())

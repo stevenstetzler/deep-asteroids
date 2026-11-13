@@ -45,9 +45,6 @@ its CSV and metadata output was **byte-identical** to salad's own
 already-built `detect_and_measure` (125 peaks): same size binary (227,984
 bytes), same peaks, same `MJD`. That run took 3.9 s and 284 MB.
 
-The engine's `MJD` is the VisitInfo date as UTC **plus 0.5 s** (a DECam
-shutter latency correction, in `detect_common.h`'s `computeMetadata()`),
-which deep-db's exposure midpoint does not include. `search/catalog.py`
-therefore labels each exposure from deep-db's midpoint plus a
-`--shutter-offset-seconds` constant instead, and only checks the engine's
-value against it.
+The engine writes an `MJD` into each catalog's header; the search does not use
+it. `search/catalog.py` labels every exposure with deep-db's exposure midpoint
+instead, the time the known and synthetic ephemerides are evaluated at.

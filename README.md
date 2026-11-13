@@ -217,15 +217,12 @@ A run's `Search.run_id` equal to a `search_definition.run_id` is the join
 back to its (night, field, detector); the summary warns about run_ids with
 no matching definition (run `ingest searches` first). Re-running skips
 run_ids already ingested; `--force` replaces them. Values are copied
-verbatim. Salad's times are correct TAI to within a fraction of a second
-(its detection engine labels each exposure 0.5 s after its midpoint, for
-DECam's shutter latency, and find-asteroids converts the UTC label to TAI):
-for the 139 recovered synthetic objects of night 20190402, results
-evaluated at deep-db's midpoint + 37 s sit a median 0.03" from the
-synthetic truth, an implied time offset of -0.18 +/- 0.22 s
-(`examples/time_offset_synthetic.py`). So there is no multi-second offset to
-correct, and only the 0.5 s label to account for when evaluating a result at
-an exposure (`examples/viz_result.py` does).
+verbatim. Salad's times are correct to within a fraction of a second: for the
+139 recovered synthetic objects of night 20190402, results evaluated at
+deep-db's midpoint (UTC to TAI) sit a median 0.03" from the synthetic truth,
+an implied time offset of -0.18 +/- 0.22 s
+(`examples/time_offset_synthetic.py`), so there is no multi-second offset to
+correct.
 
 Verified on night 20190402 from salad's database: 60 runs, 3,003 results,
 293,136 gathered, 168,828 points and 3,003 tracklets, matching the source
@@ -236,7 +233,7 @@ row for row, in about 45 s; all 60 run_ids match a `search_definition`.
 ```bash
 deep-asteroids search run (--run-id R | --night N --field F --detector-number D --band B) \
     [--catalog-dir DIR] [--velocity 0.1 0.5] [--angle 0 359.99] [--dx 10] [--num-results 50] \
-    [--refine-iterations 1] [--seed 0] [--shutter-offset-seconds 0] [--workers W] [--force] [--remove-catalogs]
+    [--refine-iterations 1] [--seed 0] [--workers W] [--force] [--remove-catalogs]
 deep-asteroids search detect (same selection) [--catalog-dir DIR] [--threshold 5] [--polarity positive] [--force]
 ```
 
@@ -248,7 +245,7 @@ order, runs the search and calls `ingest results`. Re-running skips a run_id
 that already has results; `--force` replaces it. `--remove-catalogs` deletes
 exactly that search's own catalog files once its results are committed (a
 skipped or failed run deletes nothing). A `search_run` row per run records the
-seed, the time offset, the library versions, the CPU count and what each stage
+seed, the library versions, the CPU count and what each stage
 cost.
 
 Detection needs the vendored `detect_and_measure` engine built once (see
@@ -256,13 +253,10 @@ Detection needs the vendored `detect_and_measure` engine built once (see
 inside a Slurm job). Parallelism is sized from the Slurm allocation, never
 `nproc`: one detection process per allocated CPU, and numba's thread count.
 
-- **Time labels.** Each exposure's time is deep-db's midpoint plus
-  `--shutter-offset-seconds`, not the engine's own value. Salad's detection
-  engine labels exposures 0.5 s after deep-db's midpoint (a DECam shutter
-  latency), so reproducing its searches needs `--shutter-offset-seconds 0.5`;
-  the default 0 is for when deep-db's midpoint includes it (see deep-db#17).
-  The engine's value is checked against the label and a warning is logged if
-  they differ by more than 10 ms.
+- **Time labels.** Each exposure's time is deep-db's exposure midpoint (UTC;
+  find-asteroids converts it to TAI), the same time the known-object and
+  synthetic ephemerides are evaluated at, so a search's timing matches theirs
+  by construction. The detection engine's own exposure time is not used.
 - **Determinism.** The detector and the Hough search are deterministic. The
   refinement stage is not: `mcd_regression`'s `MinCovDet` takes no
   `random_state`, so `--seed` seeds numpy's global RNG around the search
@@ -272,7 +266,7 @@ inside a Slurm job). Parallelism is sized from the Slurm allocation, never
 
 `examples/search_ccd41.sh` reruns band VR, night 20190402, field A0b,
 detector 41 (103 exposures, 50 results) and compares it with salad's earlier
-run (report in `docs/examples/search/`), level by level:
+run, level by level (the full report is in a comment on PR #20):
 
 | level | result |
 |---|---|

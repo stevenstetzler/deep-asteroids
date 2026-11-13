@@ -14,9 +14,7 @@
 # What it does:
 #   1. ingests the night's search definitions, its images, and the old run;
 #   2. `search run` (detects the 103 images, writing catalogs under
-#      $CATALOG_DIR, then searches and ingests), with salad's 0.5 s shutter
-#      label applied (--shutter-offset-seconds, until deep-db's midpoint
-#      includes it);
+#      $CATALOG_DIR, then searches and ingests);
 #   3. compares the rerun with the old run, level by level (compare_search.py);
 #   4. measures the refinement stage's noise floor: reruns the same search with
 #      two other seeds in copies of the database (the catalogs are reused) and
@@ -24,7 +22,7 @@
 #      unseeded RNG, so old-vs-new differences of the same size as
 #      seed-to-seed ones are expected, not a failure.
 #
-# The report goes to docs/examples/search/ unless $REPORT says otherwise.
+# The report is printed; set $REPORT to a file to keep a copy too.
 # Run it from a Slurm job: it detects and searches (sized from the
 # allocation), and needs the cutout/detect engines built (see the README).
 set -euo pipefail
@@ -37,10 +35,8 @@ source ./common.sh
 : "${BAND:=VR}"
 : "${RESULTS_DB:=postgresql://${USER}@localhost:55432/salad}"
 : "${CATALOG_DIR:=/gscratch/scrubbed/${USER}/deep_asteroids/catalogs}"
-: "${SHUTTER_OFFSET_SECONDS:=0.5}"
 OLD_RUN_ID="deep-decam-${FIELD}-ccd${DETECTOR}-${NIGHT}"
 NEW_RUN_ID="${OLD_RUN_ID}-${BAND}"
-: "${REPORT:=../docs/examples/search/${NEW_RUN_ID}_vs_${OLD_RUN_ID}.txt}"
 
 case "$DEEP_ASTEROIDS_DB" in
     sqlite:///*) DB_FILE="${DEEP_ASTEROIDS_DB#sqlite:///}" ;;
@@ -53,15 +49,13 @@ deep-asteroids ingest images \
     --product-type differenceExp --night "$NIGHT" --field "$FIELD"
 deep-asteroids ingest results --results-db "$RESULTS_DB" --run-id "$OLD_RUN_ID"
 
-SEARCH=(deep-asteroids search run --run-id "$NEW_RUN_ID" --catalog-dir "$CATALOG_DIR"
-        --shutter-offset-seconds "$SHUTTER_OFFSET_SECONDS")
+SEARCH=(deep-asteroids search run --run-id "$NEW_RUN_ID" --catalog-dir "$CATALOG_DIR")
 "${SEARCH[@]}"
 
-mkdir -p "$(dirname "$REPORT")"
 {
     echo "== ${NEW_RUN_ID} (seed 0) vs the previous run ${OLD_RUN_ID}"
     python compare_search.py "$NEW_RUN_ID" "$OLD_RUN_ID" \
-        --catalog-dir "$CATALOG_DIR" --shutter-offset-seconds "$SHUTTER_OFFSET_SECONDS"
+        --catalog-dir "$CATALOG_DIR"
     for seed in 1 2; do
         echo
         echo "== noise floor: seed ${seed} vs seed 0 (same catalogs, same everything else)"
@@ -70,4 +64,4 @@ mkdir -p "$(dirname "$REPORT")"
         python compare_search.py "$NEW_RUN_ID" "$NEW_RUN_ID" --new-db "sqlite:///${DB_FILE}.seed${seed}"
         rm -f "${DB_FILE}.seed${seed}"
     done
-} 2>&1 | grep -v "^INFO\|^WARNING" | tee "$REPORT"
+} 2>&1 | grep -v "^INFO\|^WARNING" | if [ -n "${REPORT:-}" ]; then tee "$REPORT"; else cat; fi

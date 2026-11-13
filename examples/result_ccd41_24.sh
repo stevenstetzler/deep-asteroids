@@ -3,9 +3,9 @@
 # deep-decam-A0b-ccd41-20190402-VR, a real-looking mover (stacked
 # forced-photometry SNR ~100, mean mag ~23.4), from OUR OWN search of night
 # 20190402, field A0b, CCD 41, band VR -- the same seeded search
-# search_ccd41.sh compares with salad's earlier run (the same parameters, the
-# seed, and salad's 0.5 s shutter label), not salad's results themselves:
-# result 24 comes out identical either way.
+# search_ccd41.sh compares with salad's earlier run (the same parameters and
+# seed), not salad's results themselves: result 24 comes out identical either
+# way.
 #
 # Ingests that night's search definitions and images, runs the search
 # (`search run`: detects the images into $CATALOG_DIR, searches, ingests),
@@ -20,11 +20,7 @@
 # $OUT_DIR says otherwise.
 #
 # Run it from a Slurm job with the detect engine built (see the README).
-# $SHUTTER_OFFSET_SECONDS (default 0.5) is applied to deep-db's midpoint
-# both when the search labels its exposures and when the result is
-# evaluated at them, so the two agree; it becomes 0 once deep-db's midpoint
-# includes the DECam shutter latency (deep-db#17). Set $REMOVE_CATALOGS to
-# delete the search's catalogs afterwards.
+# Set $REMOVE_CATALOGS to delete the search's catalogs afterwards.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./common.sh
@@ -36,15 +32,13 @@ source ./common.sh
 : "${BAND:=VR}"
 : "${RUN_ID:=deep-decam-${FIELD}-ccd${DETECTOR}-${NIGHT}-${BAND}}"
 : "${CATALOG_DIR:=/gscratch/scrubbed/${USER}/deep_asteroids/catalogs}"
-: "${SHUTTER_OFFSET_SECONDS:=0.5}"
 
 deep-asteroids ingest searches --night "$NIGHT"
 deep-asteroids ingest images \
     --registry-uri "$REGISTRY_URI" --repo-dir "$REPO_DIR" \
     --product-type differenceExp --night "$NIGHT" --field "$FIELD"
-deep-asteroids search run --run-id "$RUN_ID" --catalog-dir "$CATALOG_DIR" \
-    --shutter-offset-seconds "$SHUTTER_OFFSET_SECONDS" ${REMOVE_CATALOGS:+--remove-catalogs}
+deep-asteroids search run --run-id "$RUN_ID" --catalog-dir "$CATALOG_DIR" ${REMOVE_CATALOGS:+--remove-catalogs}
 
 python viz_result.py "$RUN_ID" "$RESULT_NUM" \
     "${OUT_DIR:-../docs/examples/viz/result_${NIGHT}_ccd${DETECTOR}_${RESULT_NUM}}" \
-    --annotate "$ANNOTATE" --shutter-offset-seconds "$SHUTTER_OFFSET_SECONDS"
+    --annotate "$ANNOTATE"

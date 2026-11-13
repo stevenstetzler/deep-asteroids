@@ -2,8 +2,7 @@
 the least deterministic -- the first level that differs says where a
 difference enters (detector, catalog assembly, Hough search, refinement).
 
-usage: compare_search.py NEW_RUN_ID OLD_RUN_ID [--new-db URL] [--old-db URL]
-                         [--catalog-dir DIR --shutter-offset-seconds S]
+usage: compare_search.py NEW_RUN_ID OLD_RUN_ID [--new-db URL] [--old-db URL] [--catalog-dir DIR]
 
 Both runs are read from ``$DEEP_ASTEROIDS_DB`` unless a ``--*-db`` URL says
 otherwise (e.g. a copy of the database holding a rerun with another seed, to
@@ -14,6 +13,13 @@ measure the refinement stage's noise floor).
   L1 Hough        per result_num: x, y, direction, n
   L2 refinement   per result_num: the tracklet and n1/n2/n5/n10
   L3 outputs      per result_num: the gathered and points sets
+
+The two runs may label their exposures with different times (salad's earlier
+searches labelled each exposure a fixed 0.5 s after deep-db's midpoint). That
+offset is not assumed: it is measured, as the median difference between the
+two runs' gathered times (results with the same number of exposures, matched
+in time order), reported, and removed from the old run's times and tracklets
+before anything is compared.
 
 Reports counts and the size of the differences, not a pass/fail.
 """
@@ -53,10 +59,62 @@ def load_run(url, run_id):
             d["gathered"] = {(round(t, 6), round(ra, 9), round(dec, 9)) for t, ra, dec, _, _ in pts}
             pts = session.execute(
                 select(Points.time, Points.ra, Points.dec).where(Points.result_id == result.id)).all()
+            d["points_rows"] = [tuple(r) for r in pts]
             d["points"] = {(round(t, 6), round(ra, 9), round(dec, 9)) for t, ra, dec in pts}
             out[result.result_num] = d
     engine.dispose()
     return out
+
+
+def measure_time_shift(new, old):
+    """``(shift_days, n_results, spread_seconds)``: how much later the old run's time labels are
+    than the new run's, from results whose gathered points cover the same number of distinct
+    times (matched in time order). ``(0, 0, 0)`` if no result is comparable."""
+    diffs = []
+    for k in sorted(set(new) & set(old)):
+        nt = sorted({round(r[0], 9) for r in new[k]["gathered_rows"]})
+        ot = sorted({round(r[0], 9) for r in old[k]["gathered_rows"]})
+        if nt and len(nt) == len(ot):
+            diffs.append(np.array(ot) - np.array(nt))
+    if not diffs:
+        return 0.0, 0, 0.0
+    alld = np.concatenate(diffs)
+    shift = float(np.median(alld))
+    return shift, len(diffs), float(np.abs(alld - shift).max() * 86400)
+
+
+SNAP_DAYS = 1e-6  # 86 ms: exposures are minutes apart, so this can only match an exposure to itself
+
+
+def snap(times, t):
+    """The entry of the sorted array ``times`` nearest ``t`` if within ``SNAP_DAYS``, else ``t``."""
+    i = int(np.searchsorted(times, t))
+    best = min((times[j] for j in (i - 1, i) if 0 <= j < len(times)), key=lambda x: abs(x - t), default=t)
+    return float(best) if abs(best - t) < SNAP_DAYS else t
+
+
+def run_times(run):
+    """The sorted distinct gathered/points times of a run."""
+    return np.array(sorted({r[0] for d in run.values() for r in d["gathered_rows"] + d["points_rows"]}))
+
+
+def align_old(old, shift, times):
+    """Re-express the old run in the new run's time labels (``t_new = t_old - shift``), snapping each
+    time onto the new run's own (``times``) so equal exposures compare equal exactly."""
+    if shift == 0:
+        return
+    for r in old.values():
+        t = r["tracklet"]
+        # position(t_new) = ra_0 + vra * (t_new + shift), so only the MJD-0 intercept and the times move
+        t["ra_0"] += t["vra"] * shift
+        t["dec_0"] += t["vdec"] * shift
+        for key in ("tref", "tmin", "tmax"):
+            if t[key] is not None:
+                t[key] -= shift
+        r["gathered_rows"] = [(snap(times, tt - shift), *rest) for tt, *rest in r["gathered_rows"]]
+        r["gathered"] = {(round(tt, 6), round(ra, 9), round(dec, 9)) for tt, ra, dec, _, _ in r["gathered_rows"]}
+        r["points_rows"] = [(snap(times, tt - shift), ra, dec) for tt, ra, dec in r["points_rows"]]
+        r["points"] = {(round(tt, 6), round(ra, 9), round(dec, 9)) for tt, ra, dec in r["points_rows"]}
 
 
 def arcsec(ra1, dec1, ra2, dec2):
@@ -64,7 +122,7 @@ def arcsec(ra1, dec1, ra2, dec2):
     return np.hypot(dra * np.cos(np.radians(dec1)), np.asarray(dec1) - dec2) * 3600
 
 
-def level0(new_run_id, old, url, catalog_dir, shutter_offset_seconds):
+def level0(new_run_id, old, url, catalog_dir):
     from sqlalchemy import select as sel
 
     from deep_asteroids.database.search import SearchDefinition
@@ -73,14 +131,15 @@ def level0(new_run_id, old, url, catalog_dir, shutter_offset_seconds):
     with Session(create_engine(url)) as session:
         sd = session.scalars(sel(SearchDefinition).where(SearchDefinition.run_id == new_run_id)).one()
         _ = list(sd.exposures)
-        cat = build_catalog(sd, catalog_dir, shutter_offset_seconds=shutter_offset_seconds)
+        cat = build_catalog(sd, catalog_dir)
     t = cat.table
     new_ra, new_dec = np.asarray(t["ra"], float), np.asarray(t["dec"], float)  # degrees
     new_flux = np.asarray(t["flux"], float) if "flux" in t.colnames else np.full(len(t), np.nan)
     new_mag = np.asarray(t["mag"], float) if "mag" in t.colnames else np.full(len(t), np.nan)
     by_time = {}  # detections by exposure, keyed by the exposure's TAI time (what the old gathered rows carry)
     for i, tt in enumerate(t["time"].tai.mjd):
-        by_time.setdefault(round(float(tt), 6), []).append(i)
+        by_time.setdefault(float(tt), []).append(i)
+    exposure_times = np.array(sorted(by_time))
 
     old_points = {}  # the distinct old gathered points
     for r in old.values():
@@ -88,7 +147,7 @@ def level0(new_run_id, old, url, catalog_dir, shutter_offset_seconds):
             old_points[(round(time, 9), round(ra, 9), round(dec, 9))] = (time, ra, dec, flux, mag)
     seps, dflux, dmag, missing = [], [], [], 0
     for time, ra, dec, flux, mag in old_points.values():
-        idx = by_time.get(round(float(time), 6))
+        idx = by_time.get(snap(exposure_times, float(time)))
         if not idx:
             missing += 1
             continue
@@ -109,7 +168,6 @@ def level0(new_run_id, old, url, catalog_dir, shutter_offset_seconds):
     if dflux:
         print(f"   flux/mag of that detection: max |dflux| {np.nanmax(dflux):.3g}, "
               f"max |dmag| {np.nanmax(dmag) if dmag else float('nan'):.3g}")
-    print(f"   engine time label vs deep-db midpoint + offset: max {cat.max_time_discrepancy_seconds * 1e3:.3f} ms")
 
 
 def level1(new, old):
@@ -176,15 +234,21 @@ def main():
     parser.add_argument("--new-db", default=os.environ.get("DEEP_ASTEROIDS_DB"))
     parser.add_argument("--old-db", default=os.environ.get("DEEP_ASTEROIDS_DB"))
     parser.add_argument("--catalog-dir", help="enables L0: the new run's detection catalogs")
-    parser.add_argument("--shutter-offset-seconds", type=float, default=0.0)
     args = parser.parse_args()
     if not (args.new_db and args.old_db):
         parser.error("set $DEEP_ASTEROIDS_DB or give --new-db/--old-db")
 
     new, old = load_run(args.new_db, args.new_run_id), load_run(args.old_db, args.old_run_id)
     print(f"new: {args.new_run_id}   old: {args.old_run_id}")
+    shift, n, spread = measure_time_shift(new, old)
+    if shift == 0:
+        print("time labels: identical" if n else "time labels: not comparable, assumed identical")
+    else:
+        print(f"time labels: the old run's are {shift * 86400:+.3f} s from the new run's (median over {n} results, "
+              f"spread {spread * 1e3:.2f} ms); removed from the old run before comparing")
+    align_old(old, shift, run_times(new))
     if args.catalog_dir:
-        level0(args.new_run_id, old, args.new_db, args.catalog_dir, args.shutter_offset_seconds)
+        level0(args.new_run_id, old, args.new_db, args.catalog_dir)
     level1(new, old)
     level2(new, old)
     level3(new, old)

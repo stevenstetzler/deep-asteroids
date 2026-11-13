@@ -50,7 +50,6 @@ class SearchRunSummary:
     n_results: int = 0
     n_catalogs_written: int = 0
     n_catalogs_removed: int = 0
-    max_time_discrepancy_seconds: float = 0.0
     detect_seconds: float = 0.0
     search_seconds: float = 0.0
     ingest_seconds: float = 0.0
@@ -116,7 +115,7 @@ def _seeded(seed, fn):
 def run_search_for_definition(
     session, search_definition, catalog_dir, detector, velocity=DEFAULTS["velocity"],
     angle=DEFAULTS["angle"], dx=DEFAULTS["dx"], num_results=DEFAULTS["num_results"],
-    refine_iterations=DEFAULTS["refine_iterations"], seed=DEFAULT_SEED, shutter_offset_seconds=0.0,
+    refine_iterations=DEFAULTS["refine_iterations"], seed=DEFAULT_SEED,
     workers=None, force=False, remove_catalogs_after=False,
 ):
     """Detect (any missing catalogs), search and ingest ``search_definition``
@@ -140,9 +139,8 @@ def run_search_for_definition(
     summary.detect_seconds = time.monotonic() - started
     summary.n_catalogs_written = detected.n_written
 
-    catalog = build_catalog(search_definition, catalog_dir, shutter_offset_seconds=shutter_offset_seconds)
+    catalog = build_catalog(search_definition, catalog_dir)
     summary.n_detections = len(catalog.table)
-    summary.max_time_discrepancy_seconds = catalog.max_time_discrepancy_seconds
 
     import numba
 
@@ -179,7 +177,7 @@ def run_search_for_definition(
 
         session.execute(delete(SearchRun).where(SearchRun.run_id == run_id))
     session.add(SearchRun(
-        run_id=run_id, seed=seed, shutter_offset_seconds=shutter_offset_seconds,
+        run_id=run_id, seed=seed,
         threshold=detector.threshold, polarity=detector.polarity, n_exposures=summary.n_exposures,
         n_detections=summary.n_detections, n_results=summary.n_results,
         find_asteroids_version=fa_version, numba_version=numba_version, numpy_version=np.__version__,

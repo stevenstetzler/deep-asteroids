@@ -1,6 +1,6 @@
 """
 One row per find-asteroids search run by ``search/run.py``: what was run
-(parameters, seed, the time offset applied) and with what (library versions),
+(parameters, seed) and with what (library versions),
 and how long each stage took. Joins to find-asteroids' ``search`` row and our
 ``search_definition`` by ``run_id``.
 """
@@ -19,7 +19,6 @@ class SearchRun(Base):
     run_id = Column(String, nullable=False, unique=True)
     # search parameters (find-asteroids' own copy is in its `search` row)
     seed = Column(Integer, nullable=False)
-    shutter_offset_seconds = Column(Float, nullable=False)  # added to deep-db's midpoint to label each exposure
     threshold = Column(Float, nullable=False)  # detection threshold (sigma)
     polarity = Column(String, nullable=False)
     n_exposures = Column(Integer, nullable=False)
