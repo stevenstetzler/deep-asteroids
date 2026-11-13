@@ -239,6 +239,86 @@ def crossmatches(ctx, sources, nights, run_ids, max_mean_sep_arcsec, all_candida
             out.write("|".join(str(fmt(v)) for v in (*row, ",".join(members.get(row[8], [])))) + "\n")
 
 
+COVERAGE_FIELDS = (
+    "night", "field", "detector_number", "band", "run_id", "n_exposures", "n_images", "searched",
+    "velocity_min", "velocity_max", "angle_min", "angle_max", "dx", "num_results_requested", "n_results",
+)
+
+
+@query.command()
+@click.option("--night", "nights", multiple=True, type=int)
+@click.option("--field", "fields_", multiple=True, type=str, help="deep-db field name (repeatable)")
+@click.option("--detector-number", "detector_numbers", multiple=True, type=int)
+@click.option("--band", "bands", multiple=True, type=str,
+              help="Only rows with this band (repeatable); '' or 'none' selects the undefined-band "
+                   "(band=NULL) rows")
+@click.option("--product-type", default="differenceExp", show_default=True,
+              help="Count existing images of this product type (e.g. differenceExp, fakes_calexp)")
+@click.option("--unsearched-only", is_flag=True, help="Only search definitions with no search_run yet")
+@click.option("--header/--no-header", default=False, help="Print the field names first")
+@click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
+@click.pass_context
+def coverage(ctx, nights, fields_, detector_numbers, bands, product_type, unsearched_only, header, output):
+    """Print one row per search_definition, '|'-separated: what data is available for it and
+    whether/how it's been searched.
+
+    Fields: night field detector_number band run_id n_exposures n_images searched velocity_min
+    velocity_max angle_min angle_max dx num_results_requested n_results. `n_exposures` is this
+    search's expected exposure count (deep-db, via `ingest searches`); `n_images` is how many of
+    those exposures have a `--product-type` image ingested (`ingest images`). `searched` is 1/0
+    for whether `search run` has produced a result for this run_id (a `search_run` row); the
+    `velocity_min`/`velocity_max`/`angle_min`/`angle_max`/`dx`/`num_results_requested` columns are
+    find-asteroids' own recorded parameters for that run and `n_results` its actual result count
+    (`search_run.n_results`) -- all empty if unsearched."""
+    from find_asteroids.models import Search as FASearch
+    from sqlalchemy import func, or_, select
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import get_db
+    from deep_asteroids.database.images import Image
+    from deep_asteroids.database.search import SearchDefinition as SD
+    from deep_asteroids.database.search import SearchDefinitionExposure as SDE
+    from deep_asteroids.database.search_run import SearchRun
+
+    image_counts = (
+        select(SDE.search_definition_id.label("sdid"), func.count(Image.id).label("n_images"))
+        .outerjoin(Image, (Image.deep_db_detector_exposure_id == SDE.deep_db_detector_exposure_id)
+                   & (Image.product_type == product_type))
+        .group_by(SDE.search_definition_id)
+        .subquery()
+    )
+    q = (
+        select(SD.night, SD.field, SD.detector_number, SD.band, SD.run_id, SD.n_exposures,
+               func.coalesce(image_counts.c.n_images, 0), SearchRun.run_id.isnot(None),
+               FASearch.velocity_0, FASearch.velocity_1, FASearch.angle_0, FASearch.angle_1, FASearch.dx,
+               FASearch.num_results, SearchRun.n_results)
+        .outerjoin(image_counts, image_counts.c.sdid == SD.id)
+        .outerjoin(SearchRun, SearchRun.run_id == SD.run_id)
+        .outerjoin(FASearch, FASearch.run_id == SD.run_id)
+    )
+    for column, values in (("night", nights), ("field", fields_), ("detector_number", detector_numbers)):
+        if values:
+            q = q.where(getattr(SD, column).in_(values))
+    if bands:
+        null_sentinels = {"", "none"}
+        named = [b for b in bands if b not in null_sentinels]
+        conditions = ([SD.band.in_(named)] if named else []) + (
+            [SD.band.is_(None)] if set(bands) & null_sentinels else [])
+        q = q.where(or_(*conditions))
+    if unsearched_only:
+        q = q.where(SearchRun.run_id.is_(None))
+    q = q.order_by(SD.night, SD.field, SD.detector_number, SD.band)
+
+    def fmt(v):
+        return "" if v is None else (int(v) if isinstance(v, bool) else v)
+
+    with click.open_file(output or "-", "w") as out, Session(get_db()) as session:
+        if header:
+            out.write("|".join(COVERAGE_FIELDS) + "\n")
+        for row in session.execute(q):
+            out.write("|".join(str(fmt(v)) for v in row) + "\n")
+
+
 RESULT_FIELDS = (
     "run_id", "result_num", "authoritative", "group", "putative_real", "failed_cuts", "n_gathered",
     "median_residual_arcsec", "speed", "sigma_v", "median_mag", "sep_submitted", "sep_synthetic", "sep_known",
