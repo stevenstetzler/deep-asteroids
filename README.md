@@ -600,6 +600,28 @@ script per case (`mpchecker_612388.sh`, `mpc_observation_592187.sh`,
 `synthetic_503133.sh`) that reproduces them end to end against the real
 registry/repo -- see `examples/README.md`.
 
+## Visualizing find-asteroids results
+
+```bash
+deep-asteroids viz result --run-id R --result-num N [--out-dir DIR] [--product-type differenceExp] \
+    [--cutout-size 51] [--annotate TEMPLATE]
+```
+
+The result analog of `viz tracklet` (#27): cutouts + forced photometry + light curve + coadd +
+movie, at one ingested find-asteroids result's own tracklet's predicted position, for every
+exposure of its search definition that the tracklet's fit (`tmin`/`tmax`) spans -- plus
+`sky.png`, the result's gathered (observed) detections colored by time against the tracklet's
+predicted track (salad's sky plot). Unlike `viz tracklet`, cutouts are written to a temporary
+directory and discarded once rendered: only the four plots are kept in `--out-dir` (default
+`./viz/result/<run_id>/<result_num>/`). `--annotate` is the same `str.format()` template as
+`viz tracklet`'s.
+
+Needs `ingest searches`, `ingest images` and the run's results already ingested (`search run`),
+and the vendored cutout engine built (above). Promoted from the one-off
+`examples/viz_result.py` script (PRs #14/#20) into a CLI primitive; `examples/result_ccd41_24.sh`
+reproduces result 24 of `deep-decam-A0b-ccd41-20190402-VR` end to end (`search run` then `viz
+result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
+
 ## Known-object tracklets
 
 ```bash

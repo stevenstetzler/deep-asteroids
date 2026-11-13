@@ -9,8 +9,9 @@
 #
 # Ingests that night's search definitions and images, runs the search
 # (`search run`: detects the images into $CATALOG_DIR, searches, ingests),
-# then measures and renders the result. The same script works for another
-# result by overriding any of:
+# then measures and renders the result with `deep-asteroids viz result`
+# (#27; promoted from this script's own one-off viz_result.py, PRs #14/#20).
+# The same script works for another result by overriding any of:
 #
 #   NIGHT=20190403 FIELD=A0c DETECTOR=10 RESULT_NUM=3 ./result_ccd41_24.sh
 #
@@ -39,6 +40,6 @@ deep-asteroids ingest images \
     --product-type differenceExp --night "$NIGHT" --field "$FIELD"
 deep-asteroids search run --run-id "$RUN_ID" --catalog-dir "$CATALOG_DIR" ${REMOVE_CATALOGS:+--remove-catalogs}
 
-python viz_result.py "$RUN_ID" "$RESULT_NUM" \
-    "${OUT_DIR:-../docs/examples/viz/result_${NIGHT}_ccd${DETECTOR}_${RESULT_NUM}}" \
+deep-asteroids viz result --run-id "$RUN_ID" --result-num "$RESULT_NUM" \
+    --out-dir "${OUT_DIR:-../docs/examples/viz/result_${NIGHT}_ccd${DETECTOR}_${RESULT_NUM}}" \
     --annotate "$ANNOTATE"
