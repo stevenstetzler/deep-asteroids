@@ -2,11 +2,22 @@
 Known-object tracklets: one linear sky-plane fit per object per night,
 for every object deep-db knows about. See ``ingest/tracklets.py``.
 """
-from sqlalchemy import CheckConstraint, Column, DateTime, Float, Index, Integer, String, text
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    text,
+)
 
 from deep_asteroids.database.models import Base
 
-SOURCES = ("synthetic", "mpc_observation", "mpchecker")
+SOURCES = ("synthetic", "mpc_observation", "mpc_linked", "mpchecker")
 SYNTHETIC_COMPONENTS = ("primary", "companion", "barycenter", "photocenter")
 # flags that mean "no fit" (the fit columns are NULL) ...
 NO_FIT_FLAGS = ("too_few_points", "conflated_trkid", "same_obstime_conflict")
@@ -25,7 +36,7 @@ def _where(condition):
 
 
 class KnownTracklet(Base):
-    """
+    r"""
     A linear tracklet for one known object on one night:
 
         ra(t)  = ra_epoch  + vra  * (t - epoch)
@@ -55,6 +66,17 @@ class KnownTracklet(Base):
       plus the designation (``deep_db_mpc_object_id``/``provid``/...) when
       deep-db attributes the tracklet to one object.
     * ``mpchecker``: ``deep_db_mpc_object_id`` and its designation.
+    * ``mpc_linked``: derived from ``mpc_observation`` rows (``deep-asteroids
+      link``): every group of MPC tracklets that are one object's night split
+      across several ``trkid``\ s, refit over the union of their observations
+      (a tracklet that merged with nothing is a group of one, with its own fit).
+      It has no single ``trkid``: ``known_tracklet_member`` lists the
+      ``mpc_observation`` rows each one was built from, which carry the
+      ``trkid``/``trksub``/designation. ``n_members`` counts them,
+      ``designations`` lists their distinct designations (comma-joined) and
+      ``n_designations`` counts them; when exactly one, ``provid``/``permid``/
+      ``name`` are set, and more than one flags two different known objects
+      whose tracks agree (reported, not split).
     """
 
     __tablename__ = "known_tracklet"
@@ -127,6 +149,11 @@ class KnownTracklet(Base):
     # mpchecker: how many fitted points landed on a detector
     n_on_chip = Column(Integer)
 
+    # mpc_linked: the group this row was built from
+    n_members = Column(Integer)
+    n_designations = Column(Integer)
+    designations = Column(String)
+
     deep_db_sha = Column(String)
     created_at = Column(DateTime, nullable=False)
 
@@ -139,3 +166,17 @@ class KnownTracklet(Base):
     def dec_0(self):
         """Dec extrapolated to MJD 0 (TAI) -- find-asteroids' ``Tracklet.dec_0`` convention."""
         return None if self.epoch is None else self.dec_epoch - self.vdec * self.epoch
+
+
+class KnownTrackletMember(Base):
+    """One row per ``mpc_observation`` tracklet that went into an
+    ``mpc_linked`` one: ``linked_id`` is the merged row, ``member_id`` the
+    per-``trkid`` row (which carries ``trkid``/``trksub``/``provid`` and the
+    deep-db ids). A member is in at most one group."""
+
+    __tablename__ = "known_tracklet_member"
+    __table_args__ = (UniqueConstraint("member_id", name="uq_known_tracklet_member_member"),)
+
+    id = Column(Integer, primary_key=True)
+    linked_id = Column(Integer, ForeignKey("known_tracklet.id"), nullable=False, index=True)
+    member_id = Column(Integer, ForeignKey("known_tracklet.id"), nullable=False)

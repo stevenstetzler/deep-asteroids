@@ -31,8 +31,15 @@ from deep_asteroids.database.tracklets import SOURCES, KnownTracklet
 
 DEFAULT_MAX_SEP_ARCSEC = 30.0
 # a result counts as a match of its source when the closest candidate is below this mean separation
-DEFAULT_MATCH_RADII = {"mpc_observation": 2.0, "synthetic": 2.0, "mpchecker": 10.0}
-LABELS = {"mpc_observation": "submitted", "mpchecker": "known", "synthetic": "synthetic"}
+DEFAULT_MATCH_RADII = {"mpc_linked": 2.0, "mpc_observation": 2.0, "synthetic": 2.0, "mpchecker": 10.0}
+LABELS = {
+    "mpc_linked": "submitted", "mpc_observation": "submitted (unlinked)", "mpchecker": "known",
+    "synthetic": "synthetic",
+}
+# submitted observations are matched as linked tracklets (``deep-asteroids link``): a fragment of an object's
+# night, split across trkids, is a poor tracklet to extrapolate over the whole night. The per-trkid
+# ``mpc_observation`` rows stay selectable.
+DEFAULT_SOURCES = ("mpc_linked", "mpchecker", "synthetic")
 
 
 @dataclass
@@ -101,7 +108,7 @@ def _known(session, night, sources):
         ra_0=ra_epoch - vra * epoch, dec_0=dec_epoch - vdec * epoch, vra=vra, vdec=vdec)
 
 
-def crossmatch_results(session, nights=None, run_ids=None, sources=SOURCES,
+def crossmatch_results(session, nights=None, run_ids=None, sources=DEFAULT_SOURCES,
                        max_sep_arcsec=DEFAULT_MAX_SEP_ARCSEC, force=False):
     """Cross-match the results of the selected search runs (default: every
     run with results) against known tracklets of ``sources`` on the same
@@ -181,20 +188,26 @@ def match_counts(session, run_ids, radii=DEFAULT_MATCH_RADII):
                                  .where(ResultDedup.result_id.in_(result_ids))).all())
     authoritative = {i for i in result_ids if dedup.get(i, True)}
     out = {"n_results": len(result_ids), "n_objects": len(authoritative)}
+    used = {src for (srcs,) in session.execute(select(CrossmatchRun.sources).where(CrossmatchRun.run_id.in_(list(run_ids))))
+            for src in srcs.split(",")}
     best = session.execute(
         select(CrossmatchCandidate.source, CrossmatchCandidate.result_id, func.min(CrossmatchCandidate.mean_sep_arcsec))
         .where(CrossmatchCandidate.result_id.in_(result_ids))
         .group_by(CrossmatchCandidate.source, CrossmatchCandidate.result_id)).all()
     for source in SOURCES:
+        if source not in used:
+            continue
         hits = {r for s, r, m in best if s == source and m < radii[source]}
         out[source] = (len(hits), len(hits & authoritative))
     return out
 
 
 def match_table(counts, radii=DEFAULT_MATCH_RADII):
-    lines = [f"  {'':<16} {'results':>8} {'objects':>8}",
-             f"  {'total':<16} {counts['n_results']:>8,} {counts['n_objects']:>8,}"]
+    lines = [f"  {'':<26} {'results':>8} {'objects':>8}",
+             f"  {'total':<26} {counts['n_results']:>8,} {counts['n_objects']:>8,}"]
     for source in SOURCES:
+        if source not in counts:
+            continue
         n, objects = counts[source]
-        lines.append(f"  {LABELS[source] + ' < ' + format(radii[source], 'g') + chr(34):<16} {n:>8,} {objects:>8,}")
+        lines.append(f"  {LABELS[source] + ' < ' + format(radii[source], 'g') + chr(34):<26} {n:>8,} {objects:>8,}")
     return "\n".join(lines)

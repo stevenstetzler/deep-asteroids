@@ -7,7 +7,8 @@
 #
 # What it does:
 #   1. ingests the night's search definitions, its three known-tracklet
-#      sources and its images, then runs the search (`search run`);
+#      sources and its images, links the MPC tracklets split across trkids
+#      (`link`), then runs the search (`search run`);
 #   2. `dedup`: clusters redetections of the same object among the results;
 #   3. `crossmatch`: matches every result against the night's known tracklets,
 #      and prints how many results match each kind of object;
@@ -34,6 +35,7 @@ NEW_RUN_ID="${OLD_RUN_ID}-${BAND}"
 
 deep-asteroids ingest searches --night "$NIGHT"
 deep-asteroids ingest tracklets synthetic mpc-observations mpc-ephemeris --night "$NIGHT"
+deep-asteroids link --night "$NIGHT"
 deep-asteroids ingest images \
     --registry-uri "$REGISTRY_URI" --repo-dir "$REPO_DIR" \
     --product-type differenceExp --night "$NIGHT" --field "$FIELD"

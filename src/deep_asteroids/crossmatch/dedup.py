@@ -32,11 +32,9 @@ from datetime import datetime, timezone
 
 import numpy as np
 from find_asteroids.models import Result, Search, Tracklet
-from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import connected_components
 from sqlalchemy import delete, func, insert, select
 
-from deep_asteroids.crossmatch.geometry import exposure_times_tai, pair_separations, pairs_within, positions
+from deep_asteroids.crossmatch.geometry import cluster_results, exposure_times_tai, positions
 from deep_asteroids.database.crossmatch import ResultDedup
 from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure
 
@@ -93,19 +91,6 @@ def _group_rows(session, nights, fields, run_ids):
     if run_ids:
         q = q.where(Search.run_id.in_(list(run_ids)))
     return session.execute(q.order_by(Result.id)).all()
-
-
-def cluster_results(ra, dec, merge_radius_arcsec):
-    """Cluster tracklets given their positions ``(n, n_times)``: ``labels``, one per
-    tracklet, equal for redetections of one object."""
-    n = ra.shape[0]
-    pairs = pairs_within(ra, dec, merge_radius_arcsec)
-    if len(pairs):
-        mean_sep = pair_separations(ra, dec, ra, dec, pairs).mean(axis=1)
-        pairs = pairs[mean_sep < merge_radius_arcsec]
-    graph = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(n, n)) if len(pairs) else \
-        coo_matrix((n, n))
-    return connected_components(graph, directed=False)[1]
 
 
 def dedup_results(session, nights=None, fields=None, run_ids=None,
