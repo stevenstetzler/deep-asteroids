@@ -3,23 +3,19 @@ find-asteroids result, at its own tracklet's predicted position in every
 exposure of its search. The result analog of ``deep-asteroids viz tracklet``,
 reusing that module's measuring and rendering.
 
-usage: viz_result.py RUN_ID RESULT_NUM OUT_DIR [--annotate TEMPLATE] [--shutter-offset-seconds S]
+usage: viz_result.py RUN_ID RESULT_NUM OUT_DIR [--annotate TEMPLATE]
 
-Each exposure's tracklet time is deep-db's UTC midpoint converted to TAI, plus
-``--shutter-offset-seconds`` (default 0.5): salad's detection engine labels each
-exposure 0.5 s after its midpoint (DECam shutter latency), and its results'
-times carry that label. Measured against synthetic objects, the results'
-times are otherwise correct to within a fraction of a second
-(``time_offset_synthetic.py``). Pass 0 for results from a search that does not
-add the 0.5 s.
+Each exposure's tracklet time is deep-db's UTC midpoint converted to TAI, the
+time the search labelled the exposure with (and the time the known-object and
+synthetic ephemerides are evaluated at).
 
 ``sky.png`` is salad's sky plot (``salad/viz.py::render_sky_plot``): the result's
 gathered (observed) detections colored by time, with its tracklet's predicted
 track as an arrow over the searched time span and an x at the predicted
 position in every exposure.
 
-Needs ``ingest searches``, ``ingest images`` and ``ingest results`` already
-done (``result_ccd41_24.sh`` does all of them). Only the four images are
+Needs ``ingest searches``, ``ingest images`` and the run's results already
+in the database (``result_ccd41_24.sh`` ingests the first two and runs the search). Only the four images are
 kept in OUT_DIR; the per-exposure cutouts go to a temporary directory.
 """
 import argparse
@@ -89,14 +85,13 @@ parser.add_argument("run_id")
 parser.add_argument("result_num", type=int)
 parser.add_argument("out_dir", type=Path)
 parser.add_argument("--annotate", default="{night}/{field}/{expnum}")
-parser.add_argument("--shutter-offset-seconds", type=float, default=0.5)
 args = parser.parse_args()
-shutter_days = args.shutter_offset_seconds / 86400
 
 
 def tracklet_time(midpoint_mjd_utc):
     """The time (MJD TAI) at which a result's tracklet is evaluated for an exposure."""
-    return float(utc_to_tai(midpoint_mjd_utc)) + shutter_days
+    return float(utc_to_tai(midpoint_mjd_utc))
+
 
 with Session(get_db()) as session:
     t = session.scalars(

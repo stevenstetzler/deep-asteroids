@@ -217,19 +217,77 @@ A run's `Search.run_id` equal to a `search_definition.run_id` is the join
 back to its (night, field, detector); the summary warns about run_ids with
 no matching definition (run `ingest searches` first). Re-running skips
 run_ids already ingested; `--force` replaces them. Values are copied
-verbatim. Salad's times are correct TAI to within a fraction of a second
-(its detection engine labels each exposure 0.5 s after its midpoint, for
-DECam's shutter latency, and find-asteroids converts the UTC label to TAI):
-for the 139 recovered synthetic objects of night 20190402, results
-evaluated at deep-db's midpoint + 37 s sit a median 0.03" from the
-synthetic truth, an implied time offset of -0.18 +/- 0.22 s
-(`examples/time_offset_synthetic.py`). So there is no multi-second offset to
-correct, and only the 0.5 s label to account for when evaluating a result at
-an exposure (`examples/viz_result.py` does).
+verbatim. Salad's times are correct to within a fraction of a second: for the
+139 recovered synthetic objects of night 20190402, results evaluated at
+deep-db's midpoint (UTC to TAI) sit a median 0.03" from the synthetic truth,
+an implied time offset of -0.18 +/- 0.22 s
+(`examples/time_offset_synthetic.py`), so there is no multi-second offset to
+correct.
 
 Verified on night 20190402 from salad's database: 60 runs, 3,003 results,
 293,136 gathered, 168,828 points and 3,003 tracklets, matching the source
 row for row, in about 45 s; all 60 run_ids match a `search_definition`.
+
+## Searches
+
+```bash
+deep-asteroids search run (--run-id R | --night N --field F --detector-number D --band B) \
+    [--catalog-dir DIR] [--velocity 0.1 0.5] [--angle 0 359.99] [--dx 10] [--num-results 50] \
+    [--refine-iterations 1] [--seed 0] [--workers W] [--force] [--remove-catalogs]
+deep-asteroids search detect (same selection) [--catalog-dir DIR] [--threshold 5] [--polarity positive] [--force]
+```
+
+Runs find-asteroids over a search definition and ingests the results under its
+`run_id`. No queue: detection writes one `<detector_exposure_id>.ecsv` catalog
+per image into `--catalog-dir` (default `/gscratch/scrubbed/$USER/deep_asteroids/
+catalogs`; a catalog that exists is skipped), `search run` stacks them in time
+order, runs the search and calls `ingest results`. Re-running skips a run_id
+that already has results; `--force` replaces it. `--remove-catalogs` deletes
+exactly that search's own catalog files once its results are committed (a
+skipped or failed run deletes nothing). A `search_run` row per run records the
+seed, the library versions, the CPU count and what each stage
+cost.
+
+Detection needs the vendored `detect_and_measure` engine built once (see
+`src/deep_asteroids/util/detect_engine/VENDORED_FROM.md`; about 1.5 minutes
+inside a Slurm job). Parallelism is sized from the Slurm allocation, never
+`nproc`: one detection process per allocated CPU, and numba's thread count.
+
+- **Time labels.** Each exposure's time is deep-db's exposure midpoint (UTC;
+  find-asteroids converts it to TAI), the same time the known-object and
+  synthetic ephemerides are evaluated at, so a search's timing matches theirs
+  by construction. The detection engine's own exposure time is not used.
+- **Determinism.** The detector and the Hough search are deterministic. The
+  refinement stage is not: `mcd_regression`'s `MinCovDet` takes no
+  `random_state`, so `--seed` seeds numpy's global RNG around the search
+  (restoring its previous state afterwards). The same seed repeats exactly.
+
+### Reproducing salad's run
+
+`examples/search_ccd41.sh` reruns band VR, night 20190402, field A0b,
+detector 41 (103 exposures, 50 results) and compares it with salad's earlier
+run, level by level (the full report is in a comment on PR #20):
+
+| level | result |
+|---|---|
+| L0 detector | all 7,065 distinct points salad's search gathered are found in the new catalog **exactly** (0" apart, identical flux and mag); the time labels agree to 0.04 ms |
+| L1 Hough | `(x, y, direction, n)` identical for all 50 results, in the same order |
+| L2 refinement | 19/50 results' tracklets differ by more than 0.05" somewhere in the span (max 2.0"); rerunning with seed 1 or 2 differs from seed 0 in 16-17/50 (max 1.2"), the same size |
+| L3 outputs | the Hough-stage `points` sets are identical for all 50; the `gathered` sets are identical for 32/50 (min Jaccard 0.96, median 1.0) |
+
+So everything but the unseeded refinement is reproduced exactly, and the
+differences that remain are the refinement's own seed-to-seed noise. Result 24
+(the example in `result_ccd41_24.sh`) is identical in all of these: same
+Hough cluster, same counts, the same 110 `gathered` points and 105 `points`,
+and a tracklet agreeing to 1e-11 deg/day. Its regenerated figures match the
+ones made from salad's database: the movie is byte-identical, and the three
+plots differ only in their title (the run id now ends in `-VR`) and 16
+anti-aliased pixels along the track in `sky.png`.
+
+Measured cost of one CCD on 4 CPUs / 8 GB: detecting its 103 images took 23 s
+with the images in the file cache and 74 s cold (about 2.9 CPU-seconds per
+image cold), the search 10 s, the ingest 3 s, and the peak memory was 557 MB
+(salad's recorded means: 3.3 s per image and 21 s per search).
 
 ## Cutouts and forced photometry
 
