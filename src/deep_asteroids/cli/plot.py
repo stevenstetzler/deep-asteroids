@@ -19,24 +19,18 @@ def _thresholds(f):
         click.option("--submitted-radius-arcsec", type=float, default=2.0, show_default=True),
         click.option("--synthetic-radius-arcsec", type=float, default=2.0, show_default=True),
         click.option("--known-radius-arcsec", type=float, default=10.0, show_default=True),
-        click.option("--log10-residual", type=float, default=-0.2, show_default=True,
-                     help="Putative real: log10(median residual / arcsec) below this"),
-        click.option("--min-gathered", type=int, default=10, show_default=True,
-                     help="Putative real: more than this many gathered points"),
-        click.option("--max-gathered", type=int, default=150, show_default=True,
-                     help="Putative real: fewer than this many gathered points"),
+        click.option("--sigma-v-threshold", type=float, default=0.00025, show_default=True,
+                     help="Putative real: sigma_v = hypot(sigma_vra, sigma_vdec) below this"),
     ]):
         f = option(f)
     return f
 
 
-def make_thresholds(submitted_radius_arcsec, synthetic_radius_arcsec, known_radius_arcsec, log10_residual,
-                    min_gathered, max_gathered):
+def make_thresholds(submitted_radius_arcsec, synthetic_radius_arcsec, known_radius_arcsec, sigma_v_threshold):
     from deep_asteroids.crossmatch.classify import Thresholds
 
     return Thresholds(submitted_radius_arcsec=submitted_radius_arcsec, synthetic_radius_arcsec=synthetic_radius_arcsec,
-                      known_radius_arcsec=known_radius_arcsec, log10_residual=log10_residual,
-                      min_gathered=min_gathered, max_gathered=max_gathered)
+                      known_radius_arcsec=known_radius_arcsec, sigma_v_threshold=sigma_v_threshold)
 
 
 def classified(session, nights, run_ids, thresholds):
@@ -55,7 +49,7 @@ def classified(session, nights, run_ids, thresholds):
 @main.group()
 @click.pass_context
 def plot(ctx):
-    """Population plots of a night's results: residuals, magnitudes, completeness."""
+    """Population plots of a night's results: residuals, sigma_v, magnitudes, completeness."""
 
 
 @plot.command()
@@ -64,7 +58,7 @@ def plot(ctx):
 @_thresholds
 @click.pass_context
 def residuals(ctx, out, nights, run_ids, authoritative_only, **kw):
-    """Histograms of log10(median residual) by group, with the putative-real cut marked."""
+    """Histograms of log10(median residual) by group (a diagnostic; not the putative-real cut -- see `sigma-v`)."""
     from sqlalchemy.orm import Session
 
     from deep_asteroids.database import create_db
@@ -73,7 +67,25 @@ def residuals(ctx, out, nights, run_ids, authoritative_only, **kw):
     thresholds = make_thresholds(**kw)
     with Session(create_db()) as session:
         rows = classified(session, nights, run_ids, thresholds)
-    click.echo(f"wrote {plot_residuals(rows, out, thresholds, authoritative_only)}")
+    click.echo(f"wrote {plot_residuals(rows, out, authoritative_only)}")
+
+
+@plot.command()
+@click.option("--out", required=True, type=click.Path(dir_okay=False), help="PNG to write")
+@_selection
+@_thresholds
+@click.pass_context
+def sigma_v(ctx, out, nights, run_ids, authoritative_only, **kw):
+    """Histograms of log10(sigma_v) by group, with the putative-real cut marked."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import create_db
+    from deep_asteroids.viz.plots import plot_sigma_v
+
+    thresholds = make_thresholds(**kw)
+    with Session(create_db()) as session:
+        rows = classified(session, nights, run_ids, thresholds)
+    click.echo(f"wrote {plot_sigma_v(rows, out, thresholds, authoritative_only)}")
 
 
 @plot.command()
@@ -136,8 +148,8 @@ def summary(ctx, nights, run_ids, authoritative_only, **kw):
 
     Groups are submitted (a linked MPC tracklet within the radius), synthetic, known (an mpchecker
     ephemeris), and unmatched, split by whether the speed is inside the search's velocity range.
-    Putative real is a cut on the result's own numbers (median residual, number of gathered points,
-    speed in range); putative new is putative real and unmatched. Needs `statistics` and `crossmatch`."""
+    Putative real is a cut on the result's own numbers (speed in range, sigma_v below threshold);
+    putative new is putative real and unmatched. Needs `statistics` and `crossmatch`."""
     from sqlalchemy.orm import Session
 
     from deep_asteroids.crossmatch.classify import MATCH_GROUPS, funnel, retained, why_rejected

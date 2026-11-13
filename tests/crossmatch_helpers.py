@@ -44,8 +44,10 @@ def add_definition(session, run_id, field="A0b", detector=1, night=NIGHT, band=N
 
 def add_run(session, run_id, results):
     """A find-asteroids run holding one result per entry of ``results``: dicts with the tracklet's
-    ``ra``/``dec`` (deg, at ``T_REF``), ``vra``/``vdec`` (deg/day), and optionally ``n`` (Hough
-    points). Returns the new ``Result`` rows, in order."""
+    ``ra``/``dec`` (deg, at ``T_REF``), ``vra``/``vdec`` (deg/day), optionally ``n`` (Hough points), and
+    optionally ``sigma_vra``/``sigma_vdec`` (deg/day fit uncertainty; default ``1e-5`` each, well under
+    the putative-real ``sigma_v`` cut -- pass a larger value, e.g. ``1e-3``, for a "noise" fixture result).
+    Returns the new ``Result`` rows, in order."""
     search = Search(run_id=run_id, velocity_0=0.1, velocity_1=0.5)
     session.add(search)
     session.flush()
@@ -57,7 +59,8 @@ def add_run(session, run_id, results):
         session.add(Tracklet(
             result_id=result.id, vra=r["vra"], vdec=r["vdec"],
             ra_0=(r["ra"] - r["vra"] * T_REF) % 360.0, dec_0=r["dec"] - r["vdec"] * T_REF, tref=T_REF,
-            tmin=EXPOSURES_TAI[0], tmax=EXPOSURES_TAI[-1], extra={}))
+            tmin=EXPOSURES_TAI[0], tmax=EXPOSURES_TAI[-1],
+            sigma_vra=r.get("sigma_vra", 1e-5), sigma_vdec=r.get("sigma_vdec", 1e-5), extra={}))
         rows.append(result)
     session.flush()
     return rows

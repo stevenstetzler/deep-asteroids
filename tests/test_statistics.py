@@ -28,7 +28,7 @@ def test_statistics_match_hand_computed_values(session):
     h.add_definition(session, "run")
     on, off, empty = h.add_run(session, "run", [
         {"ra": 215.0, "dec": -13.0, "vra": 0.2, "vdec": 0.05},
-        {"ra": 215.0, "dec": -13.0, "vra": 0.3, "vdec": -0.1},
+        {"ra": 215.0, "dec": -13.0, "vra": 0.3, "vdec": -0.1, "sigma_vra": None, "sigma_vdec": None},
         {"ra": 216.0, "dec": -13.0, "vra": 0.2, "vdec": 0.05},
     ])
     # on its tracklet: a constant 0.3" offset north in every exposure (so the median residual is 0.3")

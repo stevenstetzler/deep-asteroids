@@ -198,16 +198,20 @@ def match_counts(session, run_ids, radii=DEFAULT_MATCH_RADII):
     de-duplicated) counts as its own object."""
     result_ids = session.scalars(select(Result.id).join(Search, Search.id == Result.search_id)
                                  .where(Search.run_id.in_(list(run_ids)))).all()
-    dedup = dict(session.execute(select(ResultDedup.result_id, ResultDedup.is_authoritative)
-                                 .where(ResultDedup.result_id.in_(result_ids))).all())
+    dedup = {}
+    best = []
+    for chunk in range(0, len(result_ids), 500):
+        ids = result_ids[chunk:chunk + 500]
+        dedup.update(session.execute(select(ResultDedup.result_id, ResultDedup.is_authoritative)
+                                     .where(ResultDedup.result_id.in_(ids))).all())
+        best.extend(session.execute(
+            select(CrossmatchCandidate.source, CrossmatchCandidate.result_id, func.min(CrossmatchCandidate.mean_sep_arcsec))
+            .where(CrossmatchCandidate.result_id.in_(ids))
+            .group_by(CrossmatchCandidate.source, CrossmatchCandidate.result_id)).all())
     authoritative = {i for i in result_ids if dedup.get(i, True)}
     out = {"n_results": len(result_ids), "n_objects": len(authoritative)}
     used = {src for (srcs,) in session.execute(select(CrossmatchRun.sources).where(CrossmatchRun.run_id.in_(list(run_ids))))
             for src in srcs.split(",")}
-    best = session.execute(
-        select(CrossmatchCandidate.source, CrossmatchCandidate.result_id, func.min(CrossmatchCandidate.mean_sep_arcsec))
-        .where(CrossmatchCandidate.result_id.in_(result_ids))
-        .group_by(CrossmatchCandidate.source, CrossmatchCandidate.result_id)).all()
     for source in SOURCES:
         if source not in used:
             continue

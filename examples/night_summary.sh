@@ -37,6 +37,7 @@ echo; echo "== the first putative-new candidates (real-looking, matching no know
 deep-asteroids query results --night "$NIGHT" --putative-new --authoritative-only --limit 5 --header | column -s'|' -t
 
 deep-asteroids plot residuals --night "$NIGHT" --out "$OUT_DIR/residuals_by_group.png"
+deep-asteroids plot sigma-v --night "$NIGHT" --out "$OUT_DIR/sigma_v_by_group.png"
 deep-asteroids plot magnitudes --night "$NIGHT" --out "$OUT_DIR/magnitudes_by_group.png"
 deep-asteroids plot completeness --night "$NIGHT" --out "$OUT_DIR/completeness_synthetic.png"
 deep-asteroids plot completeness --night "$NIGHT" --source mpchecker --out "$OUT_DIR/completeness_known.png"

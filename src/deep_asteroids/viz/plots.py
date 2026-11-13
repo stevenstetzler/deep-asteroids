@@ -47,33 +47,57 @@ def _select(rows, authoritative_only):
     return [r for r in rows if r.authoritative] if authoritative_only else list(rows)
 
 
-def plot_residuals(rows, path, thresholds=None, authoritative_only=True, log10_range=(-2.0, 1.0)):
-    """Overlaid histograms of ``log10(median residual)`` per group, with the putative-real cut marked."""
+def _log_hist(rows, path, authoritative_only, value_of, xlabel, title, log10_range, cut=None):
+    """Shared implementation of ``plot_residuals``/``plot_sigma_v``: overlaid histograms of
+    ``log10(value_of(r))`` per group, optionally with a vertical line at ``cut`` (``(x, label)``)."""
     plt = _plt()
-    thresholds = thresholds or Thresholds()
     rows = _select(rows, authoritative_only)
     fig, ax = plt.subplots(figsize=(9, 6))
-    values = {g: [np.log10(r.median_residual_arcsec) for r in rows
-                  if r.group == g and r.median_residual_arcsec]
-              for g in GROUPS}
+    values = {g: [np.log10(value_of(r)) for r in rows if r.group == g and value_of(r)] for g in GROUPS}
     edges = np.linspace(*log10_range, 61)
     for g in GROUPS:
         v = [x for x in values[g] if log10_range[0] <= x <= log10_range[1]]
         if v:
             ax.hist(v, bins=edges, color=GROUP_COLORS[g], alpha=0.55, label=f"{g} (n={len(values[g]):,})")
-    ax.axvline(thresholds.log10_residual, color="k", ls="--", lw=1,
-               label=f"putative-real cut: residual < {10 ** thresholds.log10_residual:.2f}\"")
-    ax.set_xlabel("log10(median residual of gathered points / arcsec)")
+    if cut is not None:
+        x, label = cut
+        ax.axvline(x, color="k", ls="--", lw=1, label=label)
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("results" if not authoritative_only else "distinct objects")
-    ax.set_title("residual of a result's points against its own tracklet, by what it matches")
+    ax.set_title(title)
     ax.legend(fontsize=8)
     ax.grid(alpha=0.25)
     return _save(fig, path)
 
 
+def plot_residuals(rows, path, authoritative_only=True, log10_range=(-2.0, 1.0)):
+    """Overlaid histograms of ``log10(median residual)`` per group. A diagnostic, ported from salad's
+    ``plot_residual_by_group.py`` -- it is *not* the putative-real cut (``sigma_v`` is; see
+    ``plot_sigma_v``), though the two populations happen to separate at a similar point on this axis too."""
+    return _log_hist(rows, path, authoritative_only, lambda r: r.median_residual_arcsec,
+                     "log10(median residual of gathered points / arcsec)",
+                     "residual of a result's points against its own tracklet, by what it matches", log10_range)
+
+
+def plot_sigma_v(rows, path, thresholds=None, authoritative_only=True, log10_range=(-6.0, -1.0)):
+    """Overlaid histograms of ``log10(sigma_v)`` per group, with the putative-real cut marked. ``sigma_v =
+    hypot(sigma_vra, sigma_vdec)``, the fitted tracklet's velocity uncertainty -- salad's analysis
+    (``docs/ANALYZE_RESULT_STATS.md``) found this the cleanest separator of real moving objects from chance
+    alignments, after median residual and ``n_gathered`` both failed to separate them."""
+    thresholds = thresholds or Thresholds()
+    cut = (np.log10(thresholds.sigma_v_threshold), f"putative-real cut: sigma_v < {thresholds.sigma_v_threshold:g}")
+    return _log_hist(rows, path, authoritative_only, lambda r: r.sigma_v, "log10(sigma_v / (deg/day))",
+                     "tracklet fit velocity uncertainty, by what it matches", log10_range, cut)
+
+
+NOT_PUTATIVE_REAL = "unmatched, not putative real"
+
+
 def plot_magnitudes(rows, path, thresholds=None, authoritative_only=True, bin_width=0.5):
-    """Step histograms of each result's median magnitude, by group; the unmatched in-range results are
-    split into putative real (the candidates no known object explains) and not."""
+    """Three panels of each result's median magnitude, by group (the unmatched in-range results are split
+    into putative real -- the candidates no known object explains -- and not): step histograms of raw
+    counts (log scale), a linear-scale stacked total excluding ``unmatched, not putative real`` (which
+    dominates by count and would otherwise swamp the panel), and each group's own fraction."""
     plt = _plt()
     rows = _select(rows, authoritative_only)
     series = {}
@@ -81,14 +105,15 @@ def plot_magnitudes(rows, path, thresholds=None, authoritative_only=True, bin_wi
         series[g] = (GROUP_COLORS[g], [r.median_mag for r in rows if r.group == g and r.median_mag is not None])
     series["putative new (unmatched, real)"] = ("tab:orange", [
         r.median_mag for r in rows if r.putative_new and r.median_mag is not None])
-    series["unmatched, not putative real"] = ("tab:red", [
+    series[NOT_PUTATIVE_REAL] = ("tab:red", [
         r.median_mag for r in rows if r.group in (UNMATCHED_IN, UNMATCHED_OUT) and not r.putative_real
         and r.median_mag is not None])
     allv = [m for _, v in series.values() for m in v]
     if not allv:
         raise ValueError("no results with a magnitude to plot")
     edges = np.arange(np.floor(min(allv)), np.ceil(max(allv)) + bin_width, bin_width)
-    fig, (ax, ax_norm) = plt.subplots(2, 1, figsize=(9, 9), sharex=True)
+    centres = (edges[:-1] + edges[1:]) / 2
+    fig, (ax, ax_total, ax_norm) = plt.subplots(3, 1, figsize=(9, 13), sharex=True)
     for label, (color, v) in series.items():
         if v:
             ax.hist(v, bins=edges, histtype="step", lw=2, color=color, label=f"{label} (n={len(v):,})")
@@ -97,9 +122,21 @@ def plot_magnitudes(rows, path, thresholds=None, authoritative_only=True, bin_wi
     ax.set_ylabel("results" if not authoritative_only else "distinct objects")
     ax.set_title("magnitudes of results, by what they match")
     ax.legend(fontsize=8, loc="upper left")
+
+    bottom = np.zeros(len(centres))
+    for label, (color, v) in series.items():
+        if label == NOT_PUTATIVE_REAL or not v:
+            continue
+        counts, _ = np.histogram(v, bins=edges)
+        ax_total.bar(centres, counts, width=bin_width * 0.9, bottom=bottom, color=color, label=f"{label} (n={len(v):,})")
+        bottom += counts
+    ax_total.set_ylabel("objects" if authoritative_only else "results")
+    ax_total.set_title(f"total, stacked (excluding '{NOT_PUTATIVE_REAL}', which dominates by count)")
+    ax_total.legend(fontsize=8, loc="upper left")
+
     ax_norm.set_xlabel("median magnitude of the result's gathered points")
     ax_norm.set_ylabel("fraction of the group")
-    for a_ in (ax, ax_norm):
+    for a_ in (ax, ax_total, ax_norm):
         a_.grid(alpha=0.25)
     return _save(fig, path)
 
