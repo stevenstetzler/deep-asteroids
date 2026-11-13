@@ -622,6 +622,35 @@ and the vendored cutout engine built (above). Promoted from the one-off
 reproduces result 24 of `deep-decam-A0b-ccd41-20190402-VR` end to end (`search run` then `viz
 result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
 
+## The static result site
+
+```bash
+deep-asteroids package (--run-id R | --night N --field F --detector-number D [--band B]) \
+    [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
+    [--annotate TEMPLATE] [--force]
+```
+
+#27's web-based interface, as a plain static site -- no server, nothing dynamic: one cached page
+per result, written to
+
+```
+web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html
+```
+
+`<night>/<field>/ccd<detector_number>` is the data subset (a CCD's data over one night,
+independent of band -- what `query coverage` already tracks); `<band>` (`all` for the
+undefined-band union) is the search performed on it -- today a 1:1 `search_definition`/`run_id`,
+but its own directory level in case a data subset is ever searched more than one way; `<result_
+num>` is the result itself. Each page embeds the same four plots `viz result` renders
+(`light_curve.png`/`coadd.png`/`movie.gif`/`sky.png`) plus a small table of the result's own
+stats (`n`, `vra`/`vdec`, `sigma_v`). Selects search definitions the same way `search run` does;
+every one of their results is packaged unless `--result-num` narrows it. A page that already
+exists is left alone (the cache) unless `--force`.
+
+Not done here (follow-up #27 work): the index pages above the leaf (listing nights, fields, CCDs,
+bands, and the coverage/search-tracking pages from #26) -- this lays down the leaf page and its
+URL scheme first.
+
 ## Known-object tracklets
 
 ```bash
