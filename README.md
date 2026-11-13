@@ -289,6 +289,148 @@ with the images in the file cache and 74 s cold (about 2.9 CPU-seconds per
 image cold), the search 10 s, the ingest 3 s, and the peak memory was 557 MB
 (salad's recorded means: 3.3 s per image and 21 s per search).
 
+## De-duplicating and cross-matching results
+
+```bash
+deep-asteroids dedup [--night N ...] [--field F ...] [--run-id R ...] [--merge-radius-arcsec 2] [--force]
+deep-asteroids crossmatch [mpc-linked|mpc-observations|mpc-ephemeris|synthetic ...] [--night N ...] [--run-id R ...] \
+    [--max-sep-arcsec 30] [--submitted-radius-arcsec 2] [--known-radius-arcsec 10] [--synthetic-radius-arcsec 2] [--force]
+deep-asteroids query crossmatches [--source S] [--night N] [--run-id R] [--max-mean-sep-arcsec X] [--all] \
+    [--authoritative-only] [--header] [--output FILE]
+```
+
+**`dedup`** groups redetections of the same object among a night's results.
+A search commonly finds one object in several adjacent search cells, and on
+several CCDs of a pointing group, each a separate `result`/`tracklet`. Per
+`(night, field)` group (every search of every CCD of that field that night),
+two results are redetections when their tracklets agree, *on average over the
+group's exposure times* (deep-db's midpoints, in TAI), to within
+`--merge-radius-arcsec`; a cluster is the transitive closure of that. One member of
+each cluster is authoritative: the one with the most Hough-stage points
+(`result.n`), the lowest id breaking ties. Nothing is deleted, refit or
+created: the `result_dedup` table records each result's cluster, and counting
+distinct objects is counting `is_authoritative` rows. `--run-id` clusters only
+those runs' results.
+
+**`crossmatch`** matches each result's tracklet against every fitted
+`known_tracklet` of the same night, evaluating both at the search's exposure
+times (deep-db's UTC midpoints, in TAI; no offset anywhere). The sources are
+the submitted observations, matched as **linked** tracklets (`mpc_linked`, one
+per object's night, from `deep-asteroids link` below: the pieces of an object
+split across trkids are merged and refit, so run `link` first; the default sources
+are `mpc-linked`, `mpc-ephemeris` and `synthetic`, and a night that has MPC tracklets
+but none linked is an error, not a silently empty source), the known objects
+(`mpchecker` ephemerides) and the synthetic (fake) objects. The per-trkid
+`mpc-observations` can still be matched explicitly. Every pair below
+`--max-sep-arcsec` mean separation is stored in `crossmatch`, with its mean,
+minimum, maximum and total separation and the velocity difference: all
+candidates, not just the closest, since one result often matches both a
+submitted tracklet and an ephemeris. The printed table counts the results
+whose closest candidate of each source is within that source's radius
+(submitted 2", known 10", synthetic 2"), and how many of them are distinct
+(authoritative) objects. `query crossmatches` prints the closest candidate of
+each source for each result (`--all` for every stored one).
+
+Both are idempotent (`crossmatch` per search run, `dedup` per pointing group;
+`--force` redoes) and need no deep-db: `known_tracklet` is already fit and
+lives in the same database. Pairs are found without comparing all of them:
+a pair whose mean separation is below a radius is below it at one of the
+exposures, so a KD-tree per exposure finds every pair that comes near at any
+of them, and only those are tested exactly (`crossmatch/geometry.py`; a test
+checks this against brute force). Matching one 103-exposure CCD's 50 results
+takes under a second; 61 searches of a night's 3,053 results against its
+5,259 known tracklets take 15 s.
+
+Verified on the seeded ccd41 search of night 20190402 (`examples/crossmatch_ccd41.sh`):
+
+| | ours | salad's own, for the same 50 results |
+|---|---|---|
+| results with a candidate under 30" | 3 (results 26, 35, 43) | 3 (the same) |
+| result 26 | submitted `00000F941o` 0.092", known 2003 UD129 0.063" | super_tracklet 0.054" |
+| result 35 | synthetic orbit 3688014 0.031" | fake a3688014 0.033" |
+| result 43 | submitted 2019 GC134 0.078", known 2019 GC134 0.123" | super_tracklet 0.119" |
+| distinct objects (dedup) | 50 of 50 | 50 of 50 |
+
+and, to exercise merging on real redetections, our run together with salad's
+run of the same CCD finds every object twice: 100 results form 50 clusters of
+exactly 2, each pairing the same `result_num`.
+
+Over the whole night (60 searches, 3,003 results; each result classified by its
+closest candidate, as salad stores): synthetic matches under 2" / 10" are 169 / 178
+against salad's 169 / 177, and the total matched under 2" is 559 against 556. Which
+of "submitted" and "known" a result is counted under when both match it (the closest
+wins) differs (203 / 187 against salad's 258 / 129); that is a statement about which
+of two fits is closer, not about what matches. Dedup
+merges more than salad's did (3,003 results to 2,972 distinct objects against
+salad's 2,997 within its runs): salad ran with an extra
+`velocity_range: search` restriction and refit merged clusters, neither of which is
+ported; with the same restriction we merge 1, not its 6, so the difference is not
+fully explained.
+
+Not done here (the plan's later steps): the per-result statistics and the "putative
+new" filter, the summary funnel, and the plots.
+
+## Linking MPC tracklets
+
+```bash
+deep-asteroids link [--night N ...] [--match-radius-arcsec 1] [--force]
+```
+
+deep-db's submissions sometimes split one object's night of observations across
+several `trkid`s, and `ingest tracklets mpc-observations` fits each on its own.
+`link` groups the fragments (the fitted ones, so not the `conflated_trkid`,
+`same_obstime_conflict` or `too_few_points` rows) whose fits agree, *on average over the
+night's exposures* (all of deep-db's that night, in TAI), to within
+`--match-radius-arcsec` (1", salad's), by union-find (the same test `dedup`
+uses; agreement at one exposure is not enough, since two unrelated tracks can
+cross). A group of one keeps its fit; a larger group is refit over all its
+members' observations, re-read from deep-db, with the same least-squares fit.
+Each group is a `known_tracklet` row with source `mpc_linked` (the one crossmatching
+matches "submitted" observations against by default; `mpc-observations` is still
+selectable), with `n_members`, its combined `statuses`, and its `designations`. The
+`known_tracklet_member` table ties it back to the per-trkid rows it was built from
+(which carry `trkid`/`trksub`/designation); `query crossmatches` lists them as `members`.
+A conflict is reported rather than resolved: a group joining
+two different designations has `n_designations` 2 and no `provid`. Storing linked
+rows (or replacing the per-trkid ones) invalidates the night's stored cross-matches,
+which `crossmatch` then redoes.
+
+Salad's `super_tracklet` (`mpc_link.py`) is the same idea; this differs in using the
+exact pair search instead of HEALPix buckets and the repo's deterministic fit instead
+of a robust randomized one. On night 20190402 it links the 1,017 tracklets into 824
+groups (729 single, 78 pairs, 8 triples, and 9 larger groups of up to 17 trkids)
+against salad's 820. On the 1,011 trkids both link, **810 of 820 groups are identical**;
+the others differ at the margin (the pairs salad joins and we do not are 1.0 to 2.7"
+apart on average, against our 1.0" radius), and the six trkids only we link are 3 or 4
+observations over a few minutes.
+
+```bash
+deep-asteroids viz linked --night N --out-dir DIR [--min-members 2] [--linked-id ID ...] [--limit N] [--no-sheets]
+```
+
+`viz linked` draws one figure per merged tracklet, for checking the link: a RA/Dec
+panel with each member's own observations (re-read from deep-db) and its own fit
+(solid where observed, dashed across the night), under the merged fit; and a panel
+with how far each member's fit is from the merged one at every exposure of the night,
+each member's observed span shaded. It also tiles the figures into contact sheets.
+Examples for night 20190402 are in `docs/examples/viz/linked_20190402/`. All 95
+merged groups of that night pass two checks: every observation of every member lies
+within 0.49" of its group's merged fit (the median group's median is 0.06"), and of
+the 36 groups with designated members none joins two different designations (89
+designated members joined consistently); the other 59 groups are undesignated, so the
+geometry alone vouches for them.
+
+What linking does and does not do for matching, measured on that night's 3,003
+results (the same results matched against linked and against unlinked tracklets): the
+**set of results that match a submitted tracklet is identical at every radius from 1" up**
+(1", 2", 5", 10", 30"); below that it differs by one or two results (at 0.25", 2 matched only
+linked and 1 only unlinked). The 79 results that match a merged group all also match one
+of its fragments, about equally well (0.099" for the best fragment, 0.090" linked;
+the linked one is closer in 38 of them). What it changes is the count of objects: the
+330 matching results hit **531 distinct trkids but only 363 distinct objects**, and 78
+results match two or more fragments of the same object, so counting submitted objects
+without linking overcounts by 46%.
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++

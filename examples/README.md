@@ -27,6 +27,7 @@ cd examples
 ./mpchecker_612388.sh
 ./mpc_observation_592187.sh
 ./synthetic_503133.sh
+./crossmatch_ccd41.sh   # de-duplicates and cross-matches that search's results
 ./search_ccd41.sh   # reruns a salad search and compares it; see the table
 ./result_ccd41_24.sh   # runs our own search first, so it needs the detect engine built
 NIGHT=20190403 FIELD=A0c DETECTOR=10 RESULT_NUM=3 ./result_ccd41_24.sh   # any other result
@@ -52,6 +53,7 @@ available.
 | `synthetic_503133.sh` | synthetic TNO binary, orbit_id 503133 (4.0" separation) | 20190708 / B0a | 121/121 on-chip for both components; wide enough to see barycenter vs. photocenter differ by eye |
 | `result_ccd41_24.sh` | result 24 of `deep-decam-A0b-ccd41-20190402-VR`, from our own seeded search (the one `search_ccd41.sh` compares with salad's) | 20190402 / A0b | a real-looking mover: stacked forced-photometry SNR ~100 across all 103 exposures. Runs `search run` (detects, searches, ingests), then `viz_result.py` measures at the result's own tracklet position. `$NIGHT`/`$FIELD`/`$DETECTOR`/`$BAND`/`$RESULT_NUM` (and `$RUN_ID`, `$REMOVE_CATALOGS`) select another. Writes `light_curve.png`, `coadd.png`, `movie.gif` and `sky.png` (observed gathered detections vs. the tracklet's predicted positions, after salad's `render_sky_plot`) to `docs/examples/viz/result_<night>_ccd<detector>_<result>/` |
 | `search_ccd41.sh` | `search run` on band VR, detector 41, then `compare_search.py` against salad's earlier run, plus the refinement's seed-to-seed noise floor | 20190402 / A0b | the reproducibility check for #16. Needs the detect engine built and salad's Postgres (`$RESULTS_DB`) up; `$NIGHT`/`$FIELD`/`$DETECTOR`/`$BAND` select another search. Prints its report (`$REPORT` also saves it to a file) |
+| `crossmatch_ccd41.sh` | `dedup` and `crossmatch` on the seeded band-VR search of detector 41, then `compare_crossmatch.py` against salad's own crossmatch of the same search and a dedup of both runs together | 20190402 / A0b | the test for #21: 3 of the 50 results match known objects, the same 3 salad found; clustering both runs finds each object twice. Needs the detect engine built and salad's Postgres (`$RESULTS_DB`) up |
 
 Each writes `light_curve.png`, `coadd.png`, `movie.gif` and one `<id>.fits`
 cutout per exposure -- see the main README's "Visualizing known objects"

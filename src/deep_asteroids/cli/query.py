@@ -108,7 +108,7 @@ def images(ctx, fields, nights, fields_, detector_numbers, product_types, header
 @query.command()
 @click.argument("fields", nargs=-1, type=str)
 @click.option("--source", "sources", multiple=True,
-              type=click.Choice(["synthetic", "mpc_observation", "mpchecker"]))
+              type=click.Choice(["synthetic", "mpc_observation", "mpc_linked", "mpchecker"]))
 @click.option("--night", "nights", multiple=True, type=int)
 @click.option("--provid", "provids", multiple=True, type=str)
 @click.option("--trkid", "trkids", multiple=True, type=str)
@@ -154,3 +154,86 @@ def tracklets(ctx, fields, sources, nights, provids, trkids, orbit_ids, componen
             out.write("|".join(fields) + "\n")
         for row in session.execute(q):
             out.write("|".join("" if v is None else str(v) for v in row) + "\n")
+
+
+CROSSMATCH_FIELDS = (
+    "run_id", "result_num", "authoritative", "source", "mean_sep_arcsec", "min_sep_arcsec", "max_sep_arcsec",
+    "velocity_diff", "known_tracklet_id", "trkid", "provid", "orbit_id", "component", "members",
+)
+
+
+@query.command()
+@click.option("--source", "sources", multiple=True,
+              type=click.Choice(["synthetic", "mpc_observation", "mpc_linked", "mpchecker"]))
+@click.option("--night", "nights", multiple=True, type=int)
+@click.option("--run-id", "run_ids", multiple=True, type=str)
+@click.option("--max-mean-sep-arcsec", type=float, default=None, help="Only candidates below this mean separation")
+@click.option("--all", "all_candidates", is_flag=True,
+              help="Every stored candidate; default: only the closest of each source for each result")
+@click.option("--authoritative-only", is_flag=True,
+              help="Only results that are authoritative in their de-duplication cluster (or were never de-duplicated)")
+@click.option("--header/--no-header", default=False, help="Print the field names first")
+@click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
+@click.pass_context
+def crossmatches(ctx, sources, nights, run_ids, max_mean_sep_arcsec, all_candidates, authoritative_only, header,
+                 output):
+    """Print cross-match candidates, '|'-separated: the closest of each source
+    for each result (or every candidate, with --all).
+
+    Fields: run_id result_num authoritative source mean_sep_arcsec min_sep_arcsec
+    max_sep_arcsec velocity_diff known_tracklet_id trkid provid orbit_id component members.
+    `authoritative` is 1/0, or empty if the result was never de-duplicated. For
+    an `mpc_linked` match `members` lists the trkids it was linked from (and
+    `trkid` is empty); `provid` is empty if its members carry no designation or
+    more than one."""
+    from sqlalchemy import func, or_, select
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import get_db
+    from deep_asteroids.database.crossmatch import CrossmatchCandidate as C
+    from deep_asteroids.database.crossmatch import ResultDedup
+    from deep_asteroids.database.tracklets import KnownTracklet as K
+    from deep_asteroids.database.tracklets import KnownTrackletMember
+    from find_asteroids.models import Result, Search
+
+    rank = func.row_number().over(
+        partition_by=(C.result_id, C.source), order_by=(C.mean_sep_arcsec, C.id)).label("rank")
+    q = (
+        select(Search.run_id, Result.result_num, ResultDedup.is_authoritative, C.source, C.mean_sep_arcsec,
+               C.min_sep_arcsec, C.max_sep_arcsec, C.velocity_diff, K.id, K.trkid, K.provid, K.orbit_id,
+               K.component, rank)
+        .join(Result, Result.id == C.result_id).join(Search, Search.id == Result.search_id)
+        .join(K, K.id == C.known_tracklet_id).outerjoin(ResultDedup, ResultDedup.result_id == C.result_id)
+    )
+    if sources:
+        q = q.where(C.source.in_(sources))
+    if nights:
+        q = q.where(C.night.in_(nights))
+    if run_ids:
+        q = q.where(Search.run_id.in_(run_ids))
+    if max_mean_sep_arcsec is not None:
+        q = q.where(C.mean_sep_arcsec < max_mean_sep_arcsec)
+    if authoritative_only:
+        q = q.where(or_(ResultDedup.is_authoritative.is_(None), ResultDedup.is_authoritative.is_(True)))
+    sub = q.subquery()
+    outer = select(*(c for c in list(sub.c)[:-1]))
+    if not all_candidates:
+        outer = outer.where(sub.c.rank == 1)
+    outer = outer.order_by(sub.c.run_id, sub.c.result_num, sub.c.source, sub.c.mean_sep_arcsec)
+
+    def fmt(v):
+        return "" if v is None else (int(v) if isinstance(v, bool) else v)
+
+    with click.open_file(output or "-", "w") as out, Session(get_db()) as session:
+        if header:
+            out.write("|".join(CROSSMATCH_FIELDS) + "\n")
+        rows = session.execute(outer).all()
+        linked = [r[8] for r in rows if r[3] == "mpc_linked"]
+        members = {}
+        if linked:
+            for linked_id, trkid in session.execute(
+                select(KnownTrackletMember.linked_id, K.trkid).join(K, K.id == KnownTrackletMember.member_id)
+                .where(KnownTrackletMember.linked_id.in_(set(linked))).order_by(K.trkid)):
+                members.setdefault(linked_id, []).append(trkid)
+        for row in rows:
+            out.write("|".join(str(fmt(v)) for v in (*row, ",".join(members.get(row[8], [])))) + "\n")
