@@ -217,9 +217,15 @@ A run's `Search.run_id` equal to a `search_definition.run_id` is the join
 back to its (night, field, detector); the summary warns about run_ids with
 no matching definition (run `ingest searches` first). Re-running skips
 run_ids already ingested; `--force` replaces them. Values are copied
-verbatim -- notably, **salad's times are ~32.184 s earlier than true
-UTC-derived times** (its image times are TT-based), so salad-sourced
-`gathered`/`points`/`tracklet` times are not corrected here.
+verbatim. Salad's times are correct TAI to within a fraction of a second
+(its detection engine labels each exposure 0.5 s after its midpoint, for
+DECam's shutter latency, and find-asteroids converts the UTC label to TAI):
+for the 139 recovered synthetic objects of night 20190402, results
+evaluated at deep-db's midpoint + 37 s sit a median 0.03" from the
+synthetic truth, an implied time offset of -0.18 +/- 0.22 s
+(`examples/time_offset_synthetic.py`). So there is no multi-second offset to
+correct, and only the 0.5 s label to account for when evaluating a result at
+an exposure (`examples/viz_result.py` does).
 
 Verified on night 20190402 from salad's database: 60 runs, 3,003 results,
 293,136 gathered, 168,828 points and 3,003 tracklets, matching the source
