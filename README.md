@@ -194,6 +194,31 @@ deep-asteroids query images [FIELDS ...] [--night N] [--field F] [--detector-num
 
 Same `|`-separated style as `query searches`/`query tracklets`.
 
+## Search coverage
+
+```bash
+deep-asteroids query coverage [--night N] [--field F] [--detector-number D] [--band B|''|none] \
+    [--product-type differenceExp] [--unsearched-only] [--header] [--output FILE]
+```
+
+One row per `search_definition`, '|'-separated: what data is available for it and whether/how
+it's been searched -- the three things #26 asked to track, read straight off tables that already
+exist rather than a new database. Fields: `night field detector_number band run_id n_exposures
+n_images searched velocity_min velocity_max angle_min angle_max dx num_results_requested
+n_results`.
+
+- `n_exposures` is the search's expected exposure count (deep-db, via `ingest searches`);
+  `n_images` is how many of those exposures have a `--product-type` image ingested (`ingest
+  images`; default `differenceExp`, pass `fakes_calexp` for the synthetic-object product).
+- `searched` is 1/0 for whether `search run` has produced a result for this `run_id` (a
+  `search_run` row). The `velocity_min`/`velocity_max`/`angle_min`/`angle_max`/`dx`/
+  `num_results_requested` columns are find-asteroids' own recorded parameters for that run
+  (its `search` row) and `n_results` is `search_run`'s actual result count -- all empty if
+  unsearched. `--unsearched-only` keeps just those rows.
+
+Same `|`-separated style and `--night`/`--field`/`--detector-number`/`--band` filters as `query
+searches`.
+
 ## find-asteroids results
 
 ```bash
