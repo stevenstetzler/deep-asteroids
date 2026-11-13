@@ -110,12 +110,13 @@ def load_results(session, nights=None, run_ids=None):
             f"{len(missing)} selected result(s) have no statistics: run `deep-asteroids statistics` first")
     ids = [r[0] for r in rows]
     best = {}
-    for source, result_id, sep in session.execute(
-            select(CrossmatchCandidate.source, CrossmatchCandidate.result_id,
-                   func.min(CrossmatchCandidate.mean_sep_arcsec))
-            .where(CrossmatchCandidate.result_id.in_(ids)).group_by(CrossmatchCandidate.source,
-                                                                    CrossmatchCandidate.result_id)):
-        best.setdefault(result_id, {})[source] = sep
+    for chunk in range(0, len(ids), 500):
+        for source, result_id, sep in session.execute(
+                select(CrossmatchCandidate.source, CrossmatchCandidate.result_id,
+                       func.min(CrossmatchCandidate.mean_sep_arcsec))
+                .where(CrossmatchCandidate.result_id.in_(ids[chunk:chunk + 500]))
+                .group_by(CrossmatchCandidate.source, CrossmatchCandidate.result_id)):
+            best.setdefault(result_id, {})[source] = sep
     return [ResultRow(
         result_id=r[0], run_id=r[1], result_num=r[2], night=r[3], authoritative=True if r[4] is None else bool(r[4]),
         n_gathered=r[5], median_residual_arcsec=r[6], speed=r[7], sigma_v=r[8], median_mag=r[9],
