@@ -25,11 +25,13 @@ from sqlalchemy import select
 from deep_asteroids.viz.result import visualize_result
 
 _ARTIFACT_LABELS = (
-    ("light_curve", "Light curve"),
-    ("coadd", "Coadd"),
-    ("movie", "Movie"),
     ("sky", "Sky"),
+    ("coadd", "Coadd"),
+    ("light_curve", "Light curve"),
+    ("movie", "Movie"),
 )
+
+_MOBILE_BREAKPOINT_PX = 700
 
 
 def band_slug(band):
@@ -62,7 +64,12 @@ def _result_stats(session, run_id, result_num):
 def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
     """Writes ``index.html`` in ``out_dir``, referencing the artifacts ``summary`` already
     wrote there (relative paths -- the page and its images are always deployed together).
-    Returns the path."""
+
+    Five equal-width columns -- summary | sky | coadd | light curve | movie -- that wrap
+    into a single column below ``_MOBILE_BREAKPOINT_PX``. On a narrow screen only the title
+    stays fixed at the top; the summary becomes a closed, tap-to-open ``<details>`` (a plain
+    CSS override forces it open and hides its toggle arrow above the breakpoint, where it's
+    just another column, no tapping needed). Returns the path."""
     esc = html.escape
     title = f"{esc(run_id)} result {result_num}"
     rows = [
@@ -81,7 +88,7 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
     ]
     table = "\n".join(f"      <tr><th>{esc(str(k))}</th><td>{v}</td></tr>" for k, v in rows)
     figures = "\n".join(
-        f'    <figure><img src="{esc(Path(summary.artifacts[kind]).name)}" alt="{esc(label)}">'
+        f'    <figure class="col"><img src="{esc(Path(summary.artifacts[kind]).name)}" alt="{esc(label)}">'
         f"<figcaption>{esc(label)}</figcaption></figure>"
         for kind, label in _ARTIFACT_LABELS if kind in summary.artifacts
     )
@@ -89,24 +96,39 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title}</title>
   <style>
     body {{ font-family: sans-serif; margin: 2em; background: #fafafa; color: #111; }}
-    table {{ border-collapse: collapse; margin-bottom: 1.5em; }}
-    th, td {{ text-align: left; padding: 0.2em 1em; }}
-    th {{ color: #555; font-weight: normal; }}
-    .figures {{ display: flex; flex-wrap: wrap; gap: 1.5em; }}
-    figure {{ margin: 0; }}
-    figure img {{ max-width: 420px; background: #000; display: block; }}
+    .columns {{ display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5em; }}
+    .col {{ flex: 1 1 200px; min-width: 200px; margin: 0; }}
+    .col img {{ width: 100%; height: auto; background: #000; display: block; }}
     figcaption {{ text-align: center; color: #555; margin-top: 0.3em; }}
+    table {{ border-collapse: collapse; width: 100%; }}
+    th, td {{ text-align: left; padding: 0.15em 0.6em; font-size: 0.9em; }}
+    th {{ color: #555; font-weight: normal; }}
+    details.col > summary {{ cursor: pointer; font-weight: bold; margin-bottom: 0.5em; list-style: none; }}
+    details.col > summary::-webkit-details-marker {{ display: none; }}
+    details.col > summary::before {{ content: "\\25b8  "; }}
+    details.col[open] > summary::before {{ content: "\\25be  "; }}
+    @media (min-width: {_MOBILE_BREAKPOINT_PX + 1}px) {{
+      details.col > summary {{ display: none; }}
+      details.col > table {{ display: table !important; }}
+    }}
+    @media (max-width: {_MOBILE_BREAKPOINT_PX}px) {{
+      .col {{ flex-basis: 100%; }}
+    }}
   </style>
 </head>
 <body>
   <h1>{title}</h1>
-  <table>
+  <div class="columns">
+    <details class="col">
+      <summary>Summary</summary>
+      <table>
 {table}
-  </table>
-  <div class="figures">
+      </table>
+    </details>
 {figures}
   </div>
 </body>
