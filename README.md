@@ -352,11 +352,10 @@ exactly 2, each pairing the same `result_num`.
 
 Over the whole night (60 searches, 3,003 results; each result classified by its
 closest candidate, as salad stores): synthetic matches under 2" / 10" are 169 / 178
-against salad's 169 / 177, and the total matched under 2" is 559 against 556. The
-split between submitted and known objects differs (206 / 184 against salad's 258 /
-129), as expected: salad first merged split MPC tracklets into `super_tracklet`s,
-which are fit better than the individual trksubs, and this does not (a split object
-matches several rows; `trkid`/`provid` are on each match, so rows can be grouped). Dedup
+against salad's 169 / 177, and the total matched under 2" is 559 against 556. Which
+of "submitted" and "known" a result is counted under when both match it (the closest
+wins) differs (203 / 187 against salad's 258 / 129); that is a statement about which
+of two fits is closer, not about what matches. Dedup
 merges more than salad's did (3,003 results to 2,972 distinct objects against
 salad's 2,997 within its runs): salad ran with an extra
 `velocity_range: search` restriction and refit merged clusters, neither of which is
@@ -365,6 +364,51 @@ fully explained.
 
 Not done here (the plan's later steps): the per-result statistics and the "putative
 new" filter, the summary funnel, and the plots.
+
+## Linking MPC tracklets
+
+```bash
+deep-asteroids link [--night N ...] [--match-radius-arcsec 1] [--force]
+```
+
+deep-db's submissions sometimes split one object's night of observations across
+several `trkid`s, and `ingest tracklets mpc-observations` fits each on its own.
+`link` groups the fragments (the fitted ones, so not the `conflated_trkid`,
+`same_obstime_conflict` or `too_few_points` rows) whose fits agree, *on average over the
+night's exposures* (all of deep-db's that night, in TAI), to within
+`--match-radius-arcsec` (1", salad's), by union-find (the same test `dedup`
+uses; agreement at one exposure is not enough, since two unrelated tracks can
+cross). A group of one keeps its fit; a larger group is refit over all its
+members' observations, re-read from deep-db, with the same least-squares fit.
+Each group is a `known_tracklet` row with source `mpc_linked` (the one crossmatching
+matches "submitted" observations against by default; `mpc-observations` is still
+selectable), with `n_members`, its combined `statuses`, and its `designations`. The
+`known_tracklet_member` table ties it back to the per-trkid rows it was built from
+(which carry `trkid`/`trksub`/designation); `query crossmatches` lists them as `members`.
+A conflict is reported rather than resolved: a group joining
+two different designations has `n_designations` 2 and no `provid`. Storing linked
+rows (or replacing the per-trkid ones) invalidates the night's stored cross-matches,
+which `crossmatch` then redoes.
+
+Salad's `super_tracklet` (`mpc_link.py`) is the same idea; this differs in using the
+exact pair search instead of HEALPix buckets and the repo's deterministic fit instead
+of a robust randomized one. On night 20190402 it links the 1,017 tracklets into 824
+groups (729 single, 78 pairs, 8 triples, and 9 larger groups of up to 17 trkids)
+against salad's 820. On the 1,011 trkids both link, **810 of 820 groups are identical**;
+the others differ at the margin (the pairs salad joins and we do not are 1.0 to 2.7"
+apart on average, against our 1.0" radius), and the six trkids only we link are 3 or 4
+observations over a few minutes.
+
+What linking does and does not do for matching, measured on that night's 3,003
+results (the same results matched against linked and against unlinked tracklets): the
+**set of results that match a submitted tracklet is identical at every radius from 1" up**
+(1", 2", 5", 10", 30"); below that it differs by one or two results (at 0.25", 2 matched only
+linked and 1 only unlinked). The 79 results that match a merged group all also match one
+of its fragments, about equally well (0.099" for the best fragment, 0.090" linked;
+the linked one is closer in 38 of them). What it changes is the count of objects: the
+330 matching results hit **531 distinct trkids but only 363 distinct objects**, and 78
+results match two or more fragments of the same object, so counting submitted objects
+without linking overcounts by 46%.
 
 ## Cutouts and forced photometry
 

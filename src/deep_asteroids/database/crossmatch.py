@@ -5,7 +5,18 @@ objects. See ``crossmatch/dedup.py`` and ``crossmatch/match.py``.
 Both tables refer to find-asteroids' ``result`` (and, for matches, our
 ``known_tracklet``) by real foreign keys: everything lives in one database.
 """
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    delete,
+)
 
 from deep_asteroids.database.models import Base
 
@@ -91,3 +102,13 @@ class CrossmatchCandidate(Base):
     total_sep_arcsec = Column(Float, nullable=False)
     velocity_diff = Column(Float, nullable=False)
     created_at = Column(DateTime, nullable=False)
+
+
+def invalidate_crossmatch(session, nights):
+    """Delete the stored cross-matches of ``nights`` (candidates and the
+    per-run markers), because the night's known tracklets have changed and
+    the next ``crossmatch`` must recompute them. Returns how many runs were invalidated."""
+    nights = list(nights)
+    runs = session.execute(delete(CrossmatchRun).where(CrossmatchRun.night.in_(nights))).rowcount
+    session.execute(delete(CrossmatchCandidate).where(CrossmatchCandidate.night.in_(nights)))
+    return runs

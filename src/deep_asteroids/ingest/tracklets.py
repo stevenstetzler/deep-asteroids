@@ -388,6 +388,10 @@ def ingest_source(session, deep_engine, source, nights=None, force=False, deep_d
     if force:
         todo = requested
         if todo:
+            if source == "mpc_observation":  # the mpc_linked rows were built from these
+                from deep_asteroids.ingest.link import delete_linked
+
+                delete_linked(session, todo)
             session.execute(delete(KnownTracklet).where(
                 KnownTracklet.source == source, KnownTracklet.night.in_(todo)
             ))
@@ -399,6 +403,9 @@ def ingest_source(session, deep_engine, source, nights=None, force=False, deep_d
         session.commit()
         return summary
 
+    from deep_asteroids.database.crossmatch import invalidate_crossmatch
+
+    invalidate_crossmatch(session, todo)  # the night's known tracklets are changing
     rows, summary.n_points = ROW_BUILDERS[source](deep_engine, nights=todo)
     created_at = _now()
     for row in rows:

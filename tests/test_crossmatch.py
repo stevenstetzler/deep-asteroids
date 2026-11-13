@@ -31,7 +31,7 @@ def _result(east=0.0, north=0.0, **kw):
     return {"ra": ra, "dec": dec, **V, **kw}
 
 
-def _known(session, source="mpc_observation", east=0.0, north=0.0, night=h.NIGHT, **kw):
+def _known(session, source="mpc_linked", east=0.0, north=0.0, night=h.NIGHT, **kw):
     ra, dec = h.offset(*h.BASE, east, north)
     return h.add_known(session, source, ra, dec, V["vra"], V["vdec"], night=night, **kw)
 
@@ -52,7 +52,7 @@ def test_matches_by_mean_separation_over_the_exposures(session):
     by_known = {c.known_tracklet_id: c for c in _candidates(session)}
     assert set(by_known) == {exact.id, offset.id}
     c = by_known[exact.id]
-    assert c.result_id == r[0].id and c.source == "mpc_observation" and c.night == h.NIGHT
+    assert c.result_id == r[0].id and c.source == "mpc_linked" and c.night == h.NIGHT
     assert c.n_times == h.N_EXPOSURES and c.mean_sep_arcsec < 1e-3 and c.max_sep_arcsec < 1e-3
     assert c.total_sep_arcsec == pytest.approx(c.mean_sep_arcsec * c.n_times) and c.velocity_diff < 1e-9
     assert by_known[offset.id].mean_sep_arcsec == pytest.approx(1.0, abs=0.01)
@@ -85,14 +85,14 @@ def test_only_the_same_night_and_only_fitted_tracklets_count(session):
 def test_source_selection_and_max_separation(session):
     h.add_definition(session, "run")
     h.add_run(session, "run", [_result()])
-    _known(session, source="mpc_observation", east=1.0)
+    _known(session, source="mpc_linked", east=1.0)
     _known(session, source="mpchecker", east=5.0)
     crossmatch_results(session, sources=("mpchecker",), max_sep_arcsec=10.0)
     assert [c.source for c in _candidates(session)] == ["mpchecker"]
     row = session.scalars(select(CrossmatchRun)).one()
     assert (row.sources, row.max_sep_arcsec, row.n_known_tracklets, row.n_candidates) == ("mpchecker", 10.0, 1, 1)
     assert crossmatch_results(session, max_sep_arcsec=3.0, force=True).n_candidates == 1  # only the 1" one
-    assert [c.source for c in _candidates(session)] == ["mpc_observation"]
+    assert [c.source for c in _candidates(session)] == ["mpc_linked"]
 
 
 def test_a_result_labelled_half_a_second_late_still_matches(session):
@@ -141,14 +141,14 @@ def test_match_counts_objects_and_table(session):
     h.add_definition(session, "run_b", detector=2)
     h.add_run(session, "run", [_result(), _result(east=0.2, n=99), _result(north=6.0)])
     h.add_run(session, "run_b", [])
-    _known(session, source="mpc_observation", trkid="t")  # matches results 0 and 1
+    _known(session, source="mpc_linked", trkid="t")  # matches results 0 and 1
     _known(session, source="mpchecker", north=6.0)  # 0" from result 2, and 6" (< 10") from results 0 and 1
     _known(session, source="synthetic", east=20.0, orbit_id=3)  # 20": a candidate, but not a match
     crossmatch_results(session)
     dedup_results(session)  # results 0 and 1 are redetections; 1 has the most points
     counts = match_counts(session, ["run", "run_b"])
     assert counts["n_results"] == 3 and counts["n_objects"] == 2
-    assert counts["mpc_observation"] == (2, 1) and counts["mpchecker"] == (3, 2) and counts["synthetic"] == (0, 0)
+    assert counts["mpc_linked"] == (2, 1) and counts["mpchecker"] == (3, 2) and counts["synthetic"] == (0, 0)
     table = match_table(counts)
     assert 'submitted < 2"' in table and 'known < 10"' in table and 'synthetic < 2"' in table
     # without de-duplication, every result is its own object
@@ -187,7 +187,7 @@ def test_cli(db_url):
         h.add_definition(session, "run_b", detector=2)
         h.add_run(session, "run", [_result(), _result(east=0.3, n=50)])
         h.add_run(session, "run_b", [_result(north=90.0)])
-        _known(session, trkid="TRK1", source="mpc_observation")
+        _known(session, trkid="TRK1", source="mpc_linked")
         _known(session, source="mpchecker", provid="2000 AA", east=4.0)
         session.commit()
 
@@ -197,7 +197,7 @@ def test_cli(db_url):
     assert "0 pointing group(s) processed, 1 skipped" in runner.invoke(main, ["dedup"]).output
     assert "1 pointing group(s) processed, 0 skipped" in runner.invoke(main, ["dedup", "--force"]).output
 
-    out = runner.invoke(main, ["crossmatch", "mpc-observations", "mpc-ephemeris", "--night", str(h.NIGHT)])
+    out = runner.invoke(main, ["crossmatch", "mpc-linked", "mpc-ephemeris", "--night", str(h.NIGHT)])
     assert out.exit_code == 0, out.output
     assert "2 run(s) matched" in out.output and "4 candidate pair(s) stored" in out.output
     assert 'submitted < 2"' in out.output
@@ -208,12 +208,26 @@ def test_cli(db_url):
     lines = [line.split("|") for line in out.output.strip().splitlines()]
     assert lines[0][:4] == ["run_id", "result_num", "authoritative", "source"]
     rows = {(r[1], r[3]): r for r in lines[1:]}
-    assert set(rows) == {("0", "mpc_observation"), ("0", "mpchecker"), ("1", "mpc_observation"), ("1", "mpchecker")}
-    assert rows[("1", "mpc_observation")][2] == "1" and rows[("0", "mpc_observation")][2] == "0"  # authoritative
-    assert rows[("0", "mpc_observation")][9] == "TRK1" and rows[("0", "mpc_observation")][10] == ""
+    assert set(rows) == {("0", "mpc_linked"), ("0", "mpchecker"), ("1", "mpc_linked"), ("1", "mpchecker")}
+    assert rows[("1", "mpc_linked")][2] == "1" and rows[("0", "mpc_linked")][2] == "0"  # authoritative
+    assert rows[("0", "mpc_linked")][9] == "TRK1" and rows[("0", "mpc_linked")][10] == ""
     assert rows[("0", "mpchecker")][10] == "2000 AA" and rows[("0", "mpchecker")][9] == ""
 
     only_auth = runner.invoke(main, ["query", "crossmatches", "--authoritative-only", "--source", "mpchecker"])
     assert [l.split("|")[1] for l in only_auth.output.strip().splitlines()] == ["1"]
     far = runner.invoke(main, ["query", "crossmatches", "--max-mean-sep-arcsec", "1", "--all"])
-    assert all(l.split("|")[3] == "mpc_observation" for l in far.output.strip().splitlines())
+    assert all(l.split("|")[3] == "mpc_linked" for l in far.output.strip().splitlines())
+
+
+def test_unlinked_mpc_tracklets_are_matched_only_when_asked_for(session):
+    h.add_definition(session, "run")
+    h.add_run(session, "run", [_result()])
+    _known(session, source="mpc_observation", trkid="fragment")
+    linked = _known(session, source="mpc_linked", n_members=2)
+    crossmatch_results(session)
+    assert [c.known_tracklet_id for c in _candidates(session)] == [linked.id]  # the default: linked only
+    crossmatch_results(session, sources=("mpc_observation",), force=True)
+    assert [c.source for c in _candidates(session)] == ["mpc_observation"]
+    counts = match_counts(session, ["run"])
+    assert "mpc_observation" in counts and "mpc_linked" not in counts  # only what the run used is reported
+    assert 'submitted (unlinked) < 2"' in match_table(counts)

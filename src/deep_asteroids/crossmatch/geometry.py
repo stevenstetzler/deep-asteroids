@@ -3,6 +3,8 @@ Shared geometry for de-duplication and cross-matching: where linear tracklets
 are at a set of times, and which pairs of them come near each other.
 """
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
 
 from deep_asteroids.ingest.fit import sep_arcsec, utc_to_tai
@@ -63,3 +65,16 @@ def pair_separations(ra_a, dec_a, ra_b, dec_b, pairs):
     """Great-circle separations (arcsec), shape ``(n_pairs, n_times)``, of the
     tracklet pairs ``pairs`` (indices into ``a`` and ``b``)."""
     return sep_arcsec(ra_a[pairs[:, 0]], dec_a[pairs[:, 0]], ra_b[pairs[:, 1]], dec_b[pairs[:, 1]])
+
+
+def cluster_results(ra, dec, merge_radius_arcsec):
+    """Cluster tracklets given their positions ``(n, n_times)``: ``labels``, one per
+    tracklet, equal for redetections of one object."""
+    n = ra.shape[0]
+    pairs = pairs_within(ra, dec, merge_radius_arcsec)
+    if len(pairs):
+        mean_sep = pair_separations(ra, dec, ra, dec, pairs).mean(axis=1)
+        pairs = pairs[mean_sep < merge_radius_arcsec]
+    graph = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(n, n)) if len(pairs) else \
+        coo_matrix((n, n))
+    return connected_components(graph, directed=False)[1]

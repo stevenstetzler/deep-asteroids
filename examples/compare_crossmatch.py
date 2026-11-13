@@ -9,8 +9,8 @@ of each result. Results are paired by ``result_num``, which the two runs share w
 searches agree (``compare_search.py`` checks that).
 
 Salad's candidates are ``super_tracklet`` (its merged MPC observations), ``mpchecker`` and ``fake``
-(synthetic); ours are the ``known_tracklet`` sources ``mpc_observation``, ``mpchecker`` and
-``synthetic``. Salad crossmatched its tracklets at times 69 s off (its image table's times, see the
+(synthetic); ours are the ``known_tracklet`` sources ``mpc_linked`` (the linked MPC tracklets), ``mpchecker``
+and ``synthetic``. Salad crossmatched its tracklets at times 69 s off (its image table's times, see the
 README), and kept one candidate per result, so exact agreement of separations is not expected; what
 should agree is which results match which kind of object.
 """
@@ -19,7 +19,7 @@ import os
 
 from sqlalchemy import create_engine, text
 
-SALAD_TO_OURS = {"super_tracklet": "mpc_observation", "mpchecker": "mpchecker", "fake": "synthetic"}
+SALAD_TO_OURS = {"super_tracklet": "mpc_linked", "mpchecker": "mpchecker", "fake": "synthetic"}
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
 parser.add_argument("new_run_id")
@@ -40,13 +40,14 @@ with create_engine(args.results_db).connect() as conn:
 
 ours = {}  # result_num -> {source: (identity, mean_sep)}
 with create_engine(os.environ["DEEP_ASTEROIDS_DB"]).connect() as conn:
-    for num, source, sep, trkid, provid, orbit, comp in conn.execute(text("""
-        SELECT r.result_num, c.source, c.mean_sep_arcsec, k.trkid, k.provid, k.orbit_id, k.component
+    for num, source, sep, trkid, provid, orbit, comp, n_members in conn.execute(text("""
+        SELECT r.result_num, c.source, c.mean_sep_arcsec, k.trkid, k.provid, k.orbit_id, k.component, k.n_members
         FROM crossmatch c JOIN result r ON r.id = c.result_id JOIN search s ON s.id = r.search_id
         JOIN known_tracklet k ON k.id = c.known_tracklet_id
         WHERE s.run_id = :run AND c.mean_sep_arcsec < :max ORDER BY c.mean_sep_arcsec"""),
             {"run": args.new_run_id, "max": args.max_mean_sep_arcsec}):
-        identity = trkid or provid or f"orbit {orbit} {comp}"
+        identity = trkid or (f"{provid or 'undesignated'} ({n_members} trkid{'s' if n_members != 1 else ''})"
+                             if n_members else None) or provid or f"orbit {orbit} {comp}"
         ours.setdefault(num, {}).setdefault(source, (identity, sep))
 
 print(f"results with a candidate under {args.max_mean_sep_arcsec:g}\": salad {len(salad)}, ours {len(ours)}")
