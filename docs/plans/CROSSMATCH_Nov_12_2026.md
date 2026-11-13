@@ -64,23 +64,20 @@ only to compensate for deep-db access; `known_tracklet` is already fit.
 
 ## Decisions
 
-**D1. Time convention for salad's results (resolved; see #18 and
-deep-db#17).** An earlier version of this plan assumed salad's result times
-are 32.184 s early. They are not: synthetic objects recovered on 20190402
-match the results' tracklets to a median 0.03" with an implied time offset
-of -0.18 +/- 0.22 s. The only offset is the 0.5 s DECam shutter label
-salad's detection engine adds to each exposure's time. That 0.5 s is meant
-to live in deep-db's midpoint (deep-db issue #17). So a result is evaluated
-at an exposure's deep-db UTC midpoint converted to TAI, plus a per-run
-`shutter_offset_seconds`: **0.5 while deep-db's midpoint lacks the shutter
-latency** (the case for salad's results today), and 0 once it includes it.
-The constant is stored per run in a small `results_ingest` provenance table
-(run_id, source database, ingest time, `shutter_offset_seconds`), so the
-crossmatch reads it instead of hard-coding salad, and a run stays correct
-before and after the deep-db change. No data is rewritten. After the
-deep-db change lands, `known_tracklet`/`search_definition` are re-ingested
-from the new file (drop-and-re-ingest), and the stored constant for salad's
-runs becomes 0.
+**D1. Time convention for salad's results (resolved; see #18).** An
+earlier version of this plan assumed salad's result times are 32.184 s
+early. They are not: synthetic objects recovered on 20190402 match the
+results' tracklets to a median 0.03" with an implied time offset of
+-0.18 +/- 0.22 s. The only difference is that salad's engine labelled each
+exposure 0.5 s after deep-db's midpoint, ~0.005" for the fastest movers and
+irrelevant to a 2" matching radius. So a result is evaluated at an
+exposure's deep-db UTC midpoint converted to TAI, with no correction and no
+per-run constant: deep-asteroids has no shutter-time handling anywhere, and
+its own searches label exposures with deep-db's midpoint exactly (see the
+search plan). If a sub-second offset ever matters, it belongs in deep-db's
+midpoint (deep-db issue #17), not here. A small `results_ingest` provenance
+table (run_id, source database, ingest time) still records where each run
+came from.
 
 **D2. Is redetection dedup in scope?** The issue lists only ingest and
 crossmatch, but without dedup one real object appears in many adjacent
@@ -125,7 +122,7 @@ night against the salad numbers above.
 ### 1. Ingest the full survey's results (pilot, then full)
 
 No new ingest logic is needed (`ingest results` from #13). New work:
-- `results_ingest` provenance table (D1): run_id, source, ingest time, `shutter_offset_seconds` (0.5 for salad).
+- `results_ingest` provenance table: run_id, source database, ingest time.
 - **Scale**: 22.5M rows through SQLAlchemy `insertmanyvalues`. The
   20190402 run took ~43 s for 460k rows, which projects to roughly an
   hour for the survey, to be measured, not assumed. It is resumable
@@ -162,8 +159,8 @@ Algorithm, per night:
    `large_residual`) and its results, grouped by search (each has its own
    exposure times from `search_definition_exposure`).
 2. For each search, predict the result tracklets and the known
-   tracklets at that search's exposure midpoints (UTC to TAI, minus the
-   each run's `shutter_offset_seconds` for the result side) and take great-circle separations.
+   tracklets at that search's exposure midpoints (deep-db's UTC midpoint
+   converted to TAI, no offset) and take great-circle separations.
 3. Avoid the all-pairs product: prefilter with a KD-tree on unit vectors
    at the search's mid-exposure, with radius = cutoff + the largest
    motion over the baseline, then compute the exact mean separation only
@@ -173,8 +170,7 @@ Algorithm, per night:
 
 Tests: synthetic fixture with a result built exactly on a known tracklet
 (match at ~0"), one 1" off, one far away, and a result on the wrong night;
-the shutter offset (a result labelled 0.5 s late matches at ~0" only after
-the offset is applied); idempotence/`--force`.
+a result built from salad's labels (0.5 s late) still matches at ~0.005" with no correction; idempotence/`--force`.
 
 Validation on 20190402 against salad's best-match counts by source, with
 the expected differences listed rather than hidden: no refit, no trksub
