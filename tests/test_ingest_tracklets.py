@@ -33,6 +33,31 @@ def _deep_points(sql, **params):
 
 # --- synthetic ---------------------------------------------------------------
 
+def test_truth_magnitude_is_the_median_of_the_points(session):
+    """synthetic primaries and companions, and mpchecker objects, carry their points' median magnitude (the
+    truth a recovery is compared with); the derived binary centres and MPC observations carry none."""
+    ingest_source(session, get_deep_db(), "synthetic")
+    ingest_source(session, get_deep_db(), "mpchecker")
+    ingest_source(session, get_deep_db(), "mpc_observation")
+    mags = {(r.orbit_id, r.component): r.mag for r in _rows(session, "synthetic")}
+    assert mags[(1001, "primary")] == 22.0 and mags[(1002, "primary")] == 23.0 and mags[(1002, "companion")] == 23.5
+    assert mags[(1002, "barycenter")] is None and mags[(1002, "photocenter")] is None
+    (mpchecker,) = _rows(session, "mpchecker")
+    assert mpchecker.mag == 23.0
+    assert all(r.mag is None for r in _rows(session, "mpc_observation"))
+
+
+def test_group_median_ignores_missing_magnitudes():
+    import numpy as np
+
+    from deep_asteroids.ingest.tracklets import _group_median
+
+    group = np.array([2, 1, 2, 1, 3, 2])
+    values = np.array([5.0, 1.0, np.nan, 3.0, np.nan, 7.0])
+    labels = np.array([1, 2, 3])
+    out = _group_median(group, values, labels)
+    assert out[0] == 2.0 and out[1] == 6.0 and np.isnan(out[2])  # group 3 has no finite value
+
 def test_synthetic_rows_per_component(session):
     summary = ingest_source(session, get_deep_db(), "synthetic", deep_db_sha="abc")
     assert summary.nights == [NIGHT]

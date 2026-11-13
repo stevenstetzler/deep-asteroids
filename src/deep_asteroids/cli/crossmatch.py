@@ -123,3 +123,25 @@ def link(ctx, nights, match_radius_arcsec, force):
         summary = link_mpc_tracklets(session, get_deep_db(), chosen, match_radius_arcsec=match_radius_arcsec,
                                      force=force, deep_db_sha=deep_db_sha())
     click.echo(summary.format())
+
+
+@main.command()
+@click.option("--night", "nights", multiple=True, type=int, help="Only these nights (repeatable)")
+@click.option("--run-id", "run_ids", multiple=True, type=str, help="Only these search runs (repeatable)")
+@click.option("--force", is_flag=True, help="Redo runs that already have statistics")
+@click.pass_context
+def statistics(ctx, nights, run_ids, force):
+    """Compute per-result summary statistics (the result_statistics table).
+
+    For each result: the median residual of its gathered points against its
+    own tracklet, the number of outliers, its speed and velocity uncertainty,
+    and the median magnitude of its points. Needs no cross-match. Re-running
+    skips runs already done unless --force."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.crossmatch.statistics import compute_result_statistics
+    from deep_asteroids.database import create_db
+
+    with Session(create_db()) as session:
+        summary = compute_result_statistics(session, nights=nights, run_ids=run_ids, force=force)
+    click.echo(summary.format())

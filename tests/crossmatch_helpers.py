@@ -21,16 +21,22 @@ BASE = (215.0, -13.0)
 ARCSEC = 1.0 / 3600
 
 
-def add_definition(session, run_id, field="A0b", detector=1, night=NIGHT, band=None):
+def add_definition(session, run_id, field="A0b", detector=1, night=NIGHT, band=None, footprint=None):
     sd = SearchDefinition(
         night=night, field=field, detector_number=detector, detector_name=f"D{detector}", run_id=run_id,
         band=band, n_exposures=N_EXPOSURES, t_start_mjd=EXPOSURES_UTC[0], t_end_mjd=EXPOSURES_UTC[-1],
         created_at=datetime(2026, 1, 1),
     )
+    corners = {}
+    if footprint is not None:  # (ra, dec, half_size): a square chip, half_size deg on a side from its centre
+        ra_c, dec_c, half = footprint
+        dra = half / np.cos(np.radians(dec_c))
+        corners = {"ra_00": ra_c - dra, "dec_00": dec_c - half, "ra_01": ra_c - dra, "dec_01": dec_c + half,
+                   "ra_10": ra_c + dra, "dec_10": dec_c - half, "ra_11": ra_c + dra, "dec_11": dec_c + half}
     for i, t in enumerate(EXPOSURES_UTC):
         sd.exposures.append(SearchDefinitionExposure(
             deep_db_exposure_id=100 + i, deep_db_detector_exposure_id=1000 * detector + i, expnum=5000 + i,
-            midpoint_mjd=t))
+            midpoint_mjd=t, **corners))
     session.add(sd)
     session.flush()
     return sd
@@ -55,6 +61,18 @@ def add_run(session, run_id, results):
         rows.append(result)
     session.flush()
     return rows
+
+
+def add_gathered(session, result, offsets_arcsec, mags=None, vra=0.2, vdec=0.05, ra=BASE[0], dec=BASE[1]):
+    """Gathered points for ``result``: one per exposure, ``offsets_arcsec[i]`` due north of the tracklet
+    ``ra``/``dec`` (at ``T_REF``, moving at ``vra``/``vdec``), with magnitude ``mags[i]``."""
+    from find_asteroids.models import Gathered
+
+    for i, t in enumerate(EXPOSURES_TAI):
+        p_ra, p_dec = ra + vra * (t - T_REF), dec + vdec * (t - T_REF) + offsets_arcsec[i] * ARCSEC
+        session.add(Gathered(result_id=result.id, ra=p_ra % 360.0, dec=p_dec, time=t,
+                             mag=None if mags is None else mags[i], extra={}))
+    session.flush()
 
 
 def add_known(session, source, ra, dec, vra, vdec, night=NIGHT, flag=None, **identity):
