@@ -64,18 +64,23 @@ only to compensate for deep-db access; `known_tracklet` is already fit.
 
 ## Decisions
 
-**D1. Time convention for salad's results (resolved; see #18).** An
-earlier version of this plan assumed salad's result times are 32.184 s
-early. They are not: synthetic objects recovered on 20190402 match the
-results' tracklets to a median 0.03" with an implied time offset of
--0.18 +/- 0.22 s. The only offset is the 0.5 s DECam shutter label salad's
-detection engine adds. So a result is evaluated at an exposure's deep-db
-UTC midpoint converted to TAI, plus 0.5 s, with no rewrite of the data. The
-0.5 s is the one per-source constant; a native deep-asteroids search that
-does not add it uses 0. It is stored per run, in a small `results_ingest`
-provenance table (run_id, source database, ingest time,
-`shutter_offset_seconds`), so the crossmatch reads it instead of
-hard-coding salad.
+**D1. Time convention for salad's results (resolved; see #18 and
+deep-db#17).** An earlier version of this plan assumed salad's result times
+are 32.184 s early. They are not: synthetic objects recovered on 20190402
+match the results' tracklets to a median 0.03" with an implied time offset
+of -0.18 +/- 0.22 s. The only offset is the 0.5 s DECam shutter label
+salad's detection engine adds to each exposure's time. That 0.5 s is meant
+to live in deep-db's midpoint (deep-db issue #17). So a result is evaluated
+at an exposure's deep-db UTC midpoint converted to TAI, plus a per-run
+`shutter_offset_seconds`: **0.5 while deep-db's midpoint lacks the shutter
+latency** (the case for salad's results today), and 0 once it includes it.
+The constant is stored per run in a small `results_ingest` provenance table
+(run_id, source database, ingest time, `shutter_offset_seconds`), so the
+crossmatch reads it instead of hard-coding salad, and a run stays correct
+before and after the deep-db change. No data is rewritten. After the
+deep-db change lands, `known_tracklet`/`search_definition` are re-ingested
+from the new file (drop-and-re-ingest), and the stored constant for salad's
+runs becomes 0.
 
 **D2. Is redetection dedup in scope?** The issue lists only ingest and
 crossmatch, but without dedup one real object appears in many adjacent
@@ -158,7 +163,7 @@ Algorithm, per night:
    exposure times from `search_definition_exposure`).
 2. For each search, predict the result tracklets and the known
    tracklets at that search's exposure midpoints (UTC to TAI, minus the
-   D1's 0.5 s shutter offset for the result side) and take great-circle separations.
+   each run's `shutter_offset_seconds` for the result side) and take great-circle separations.
 3. Avoid the all-pairs product: prefilter with a KD-tree on unit vectors
    at the search's mid-exposure, with radius = cutoff + the largest
    motion over the baseline, then compute the exact mean separation only
