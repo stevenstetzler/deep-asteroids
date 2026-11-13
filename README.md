@@ -438,7 +438,7 @@ deep-asteroids statistics [--night N ...] [--run-id R ...] [--force]
 deep-asteroids summary [--night N ...] [--run-id R ...] [--all-results] [thresholds]
 deep-asteroids query results [--group G] [--putative-real|--not-putative-real] [--putative-new] [--authoritative-only] \
     [--limit N] [--header] [--output FILE] [thresholds]
-deep-asteroids plot residuals|magnitudes --out FILE [--night N ...] [--run-id R ...] [--all-results] [thresholds]
+deep-asteroids plot residuals|sigma-v|magnitudes --out FILE [--night N ...] [--run-id R ...] [--all-results] [thresholds]
 deep-asteroids plot completeness --out FILE [--source synthetic|mpchecker] [--min-exposure-fraction 0.5] \
     [--radius-arcsec X] [--bin-width 0.5] [--night N ...] [--run-id R ...]
 ```
@@ -455,22 +455,31 @@ median residual are **identical for all 200** (the residual bit-for-bit).
 **Groups and the putative-real cut** (`crossmatch/classify.py`, salad's). Each result is in exactly one group:
 `submitted` (a linked MPC tracklet within 2"), `synthetic` (within 2"; the closer wins if both),
 `known` (an mpchecker ephemeris within 10"), else unmatched, split by whether its speed is inside its search's
-velocity range. A result is **putative real** if its median residual is below 0.63" (`log10 < -0.2`), it has more
-than 10 and fewer than 150 gathered points, and its speed is strictly inside the search's range;
+velocity range. A result is **putative real** if its `sigma_v` (`hypot(sigma_vra, sigma_vdec)`, the fitted
+tracklet's velocity uncertainty) is below `0.00025` deg/day and its speed is strictly inside the search's range;
 **putative new** is putative real and unmatched. Every threshold is an option. Objects are counted as the
 authoritative result of each `dedup` cluster, so redetections and duplicate searches count once.
 
-On night 20190402 (60 searches, 3,053 results = 2,972 distinct objects), the cut keeps **100% of the submitted
-matches (329/329), 97% of the known (65/67) and 88% of the synthetic (139/158)**, the last because 18 of the 19
-it rejects fail the velocity cut: synthetic objects outside the search's designed speed range. Of the 1,415 unmatched objects in
-range, **363 are putative new** (they peak at magnitude 23.5-24.5, faint, where objects not yet submitted
-would be); the 1,003 unmatched outside the range fail the cut by definition, and 2,053 results fail the residual
-cut in all. `summary` prints this funnel; `query results` lists the rows.
+`sigma_v` replaced an earlier median-residual/`n_gathered` cut after salad's further analysis
+(`docs/ANALYZE_RESULT_STATS.md` in the salad repo) found it the cleanest separator of real moving objects from
+chance alignments at every contour level tried, where `n_gathered` showed no separation at all and median
+residual, while usable, was noisier. The median residual is still computed and plotted (`plot residuals`) as a
+diagnostic; it is no longer the cut.
 
-**`plot`** writes PNGs (examples for the night in `docs/examples/viz/night_20190402/`): `residuals` (log10
-median residual by group, with the cut marked: matched objects sit near 0.1", chance alignments near 4", the cut
-falls in the valley), `magnitudes` (each result's median magnitude by group, counts and normalized), and
-`completeness`: the fraction of **findable** synthetic (or mpchecker) objects that a result matched, against their
+On night 20190402 (60 searches, 3,053 results = 2,972 distinct objects), the cut keeps **100% of the submitted
+matches (329/329), 100% of the known (67/67) and 89% of the synthetic (140/158)**, the last because most of the
+18 it rejects fail the velocity cut: synthetic objects outside the search's designed speed range. Of the 1,415
+unmatched objects in range, **365 are putative new** (they peak at magnitude 23.5-24.5, faint, where objects not
+yet submitted would be); the 1,003 unmatched outside the range fail the cut by definition, and 1,982 results
+fail the `sigma_v` cut in all. `summary` prints this funnel; `query results` lists the rows.
+
+**`plot`** writes PNGs (examples for the night in `docs/examples/viz/night_20190402/`): `sigma-v` (log10
+sigma_v by group, with the cut marked -- the putative-real discriminant: matched objects sit in a tight low-
+sigma_v peak, chance alignments in a broad high-sigma_v one), `residuals` (log10 median residual by group, a
+diagnostic that separates similarly but less cleanly -- not the cut), `magnitudes` (each result's median
+magnitude by group: raw counts, a linear-scale stacked total excluding the dominant `unmatched, not putative
+real` group, and each group's own fraction), and `completeness`: the fraction of **findable** synthetic (or
+mpchecker) objects that a result matched, against their
 truth magnitude (`known_tracklet.mag`, the median of the night's points), with Wilson 68% intervals. An object is
 findable only if its track is on a searched chip (tested geometrically against each exposure's chip footprint)
 for at least half of that search's exposures *and* its speed is inside the search's range, so objects on chips,

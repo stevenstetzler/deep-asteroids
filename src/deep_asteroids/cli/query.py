@@ -256,15 +256,13 @@ RESULT_FIELDS = (
 @click.option("--putative-new", is_flag=True, help="Only putative real results that match nothing")
 @click.option("--authoritative-only", is_flag=True,
               help="Only the authoritative result of each de-duplication cluster")
-@click.option("--log10-residual", type=float, default=-0.2, show_default=True)
-@click.option("--min-gathered", type=int, default=10, show_default=True)
-@click.option("--max-gathered", type=int, default=150, show_default=True)
+@click.option("--sigma-v-threshold", type=float, default=0.00025, show_default=True)
 @click.option("--limit", type=int, default=None, help="Only the first N results")
 @click.option("--header/--no-header", default=False, help="Print the field names first")
 @click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
 @click.pass_context
-def results(ctx, nights, run_ids, groups, putative_real, putative_new, authoritative_only, log10_residual,
-            min_gathered, max_gathered, limit, header, output):
+def results(ctx, nights, run_ids, groups, putative_real, putative_new, authoritative_only, sigma_v_threshold,
+            limit, header, output):
     """Print results with their statistics, group and putative-real call, '|'-separated.
 
     Fields: run_id result_num authoritative group putative_real failed_cuts n_gathered
@@ -275,7 +273,7 @@ def results(ctx, nights, run_ids, groups, putative_real, putative_new, authorita
     from deep_asteroids.cli.plot import classified, make_thresholds
     from deep_asteroids.database import create_db
 
-    thresholds = make_thresholds(2.0, 2.0, 10.0, log10_residual, min_gathered, max_gathered)
+    thresholds = make_thresholds(2.0, 2.0, 10.0, sigma_v_threshold)
     with Session(create_db()) as session:
         rows = classified(session, nights, run_ids, thresholds)
     if groups:

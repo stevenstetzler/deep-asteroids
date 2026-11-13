@@ -11,13 +11,15 @@ Group results by what they match, and call each putative real or not.
 * else unmatched, ``unmatched (in velocity range)`` or ``unmatched (outside velocity range)`` according to
   whether its fitted speed ``hypot(vra, vdec)`` is inside its own search's ``(velocity_0, velocity_1)``.
 
-**Putative real** is a cut on the result's own numbers, needing no cross-match, from salad's analysis (the
-median residual of a result's gathered points against its own tracklet is bimodal: a few tenths of an arcsec for
-real moving objects, arcsec-scale for chance alignments): the median residual below ``10**log10_residual``
-(``-0.2``, 0.63"), more than ``min_gathered`` and fewer than ``max_gathered`` gathered points, and a speed strictly
-inside its search's velocity range. **Putative new** is putative real *and unmatched*: a candidate no known object
-explains. Counting objects uses the authoritative result of each de-duplication cluster
-(``crossmatch/dedup.py``); a result never de-duplicated counts as its own.
+**Putative real** is a cut on the result's own numbers, needing no cross-match, from salad's analysis
+(``docs/ANALYZE_RESULT_STATS.md``): a speed strictly inside its search's velocity range, and
+``sigma_v = hypot(sigma_vra, sigma_vdec)`` below ``sigma_v_threshold`` (default ``0.00025``, the fitted tracklet's
+velocity uncertainty). salad tried several other features first (median residual, ``n_gathered``, arclength,
+outlier fraction); only ``sigma_v`` cleanly separated the two populations at every contour level tried,
+``n_gathered`` in particular showed no separation at all. The median residual is still recorded and plotted
+(``plot_residuals``) as a diagnostic -- it is no longer the cut. **Putative new** is putative real *and
+unmatched*: a candidate no known object explains. Counting objects uses the authoritative result of each
+de-duplication cluster (``crossmatch/dedup.py``); a result never de-duplicated counts as its own.
 """
 from dataclasses import dataclass, field
 
@@ -44,9 +46,7 @@ class Thresholds:
     submitted_radius_arcsec: float = 2.0
     synthetic_radius_arcsec: float = 2.0
     known_radius_arcsec: float = 10.0
-    log10_residual: float = -0.2  # putative real: log10(median residual / arcsec) below this
-    min_gathered: int = 10  # ... more than this many gathered points
-    max_gathered: int = 150  # ... and fewer than this many
+    sigma_v_threshold: float = 0.00025  # putative real: sigma_v = hypot(sigma_vra, sigma_vdec) below this
 
     def radius(self, group):
         return {SUBMITTED: self.submitted_radius_arcsec, SYNTHETIC: self.synthetic_radius_arcsec,
@@ -137,22 +137,13 @@ def classify(rows, thresholds=None):
             r.group = UNMATCHED_IN if r.in_velocity_range else UNMATCHED_OUT
 
         failed = []
-        if r.median_residual_arcsec is None or not (
-                _log10(r.median_residual_arcsec) < thresholds.log10_residual):
-            failed.append("residual")
-        if not thresholds.min_gathered < r.n_gathered < thresholds.max_gathered:
-            failed.append("n_gathered")
+        if r.sigma_v is None or not (r.sigma_v < thresholds.sigma_v_threshold):
+            failed.append("sigma_v")
         if not r.in_velocity_range:
             failed.append("velocity")
         r.failed = tuple(failed)
         r.putative_real = not failed
     return rows
-
-
-def _log10(x):
-    import math
-
-    return math.log10(x) if x > 0 else float("-inf")
 
 
 @dataclass

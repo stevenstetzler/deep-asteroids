@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from deep_asteroids.cli import main
 from deep_asteroids.crossmatch.classify import ResultRow, Thresholds, classify
 from deep_asteroids.database import create_db
-from deep_asteroids.viz.plots import plot_magnitudes, plot_residuals
+from deep_asteroids.viz.plots import plot_magnitudes, plot_residuals, plot_sigma_v
 
 PNG = b"\x89PNG\r\n\x1a\n"
 
@@ -23,15 +23,18 @@ def rows():
     return classify([
         row(1, best={"mpc_linked": 0.1}, median_mag=20.0), row(2, best={"synthetic": 0.1}, median_mag=23.0),
         row(3, best={"mpchecker": 1.0}, median_mag=21.0), row(4, median_mag=23.5),  # putative new
-        row(5, median_residual_arcsec=4.0, median_mag=22.5), row(6, median_residual_arcsec=4.0, speed=0.9),
+        row(5, median_residual_arcsec=4.0, sigma_v=4.0, median_mag=22.5),
+        row(6, median_residual_arcsec=4.0, sigma_v=4.0, speed=0.9),
         row(7, authoritative=False, median_mag=19.0),
     ])
 
 
 def test_residual_and_magnitude_plots_are_written(tmp_path):
     thr = Thresholds()
-    assert plot_residuals(rows(), tmp_path / "sub" / "r.png", thr).read_bytes()[:8] == PNG
-    assert plot_residuals(rows(), tmp_path / "all.png", thr, authoritative_only=False).stat().st_size > 5000
+    assert plot_residuals(rows(), tmp_path / "sub" / "r.png").read_bytes()[:8] == PNG
+    assert plot_residuals(rows(), tmp_path / "all.png", authoritative_only=False).stat().st_size > 5000
+    assert plot_sigma_v(rows(), tmp_path / "sv.png", thr).read_bytes()[:8] == PNG
+    assert plot_sigma_v(rows(), tmp_path / "sv2.png", thr, authoritative_only=False).stat().st_size > 5000
     assert plot_magnitudes(rows(), tmp_path / "m.png", thr).read_bytes()[:8] == PNG
     assert plot_magnitudes(rows(), tmp_path / "m2.png", thr, authoritative_only=False, bin_width=1.0).exists()
 
@@ -62,12 +65,12 @@ def test_cli_plots(db_url, tmp_path):
         compute_result_statistics(session)
     assert runner.invoke(main, ["crossmatch"]).exit_code == 0
 
-    for command in ("residuals", "magnitudes"):
+    for command in ("residuals", "sigma-v", "magnitudes"):
         out = runner.invoke(main, ["plot", command, "--out", str(tmp_path / f"{command}.png"), "--night", str(h.NIGHT)])
         assert out.exit_code == 0, out.output
         assert (tmp_path / f"{command}.png").read_bytes()[:8] == PNG
-    out = runner.invoke(main, ["plot", "residuals", "--out", str(tmp_path / "all.png"), "--all-results",
-                               "--log10-residual", "0.5", "--min-gathered", "5"])
+    out = runner.invoke(main, ["plot", "sigma-v", "--out", str(tmp_path / "all.png"), "--all-results",
+                               "--sigma-v-threshold", "0.5"])
     assert out.exit_code == 0 and (tmp_path / "all.png").exists()
     assert "no results selected" in runner.invoke(
         main, ["plot", "magnitudes", "--out", str(tmp_path / "n.png"), "--night", "19000101"]).output
