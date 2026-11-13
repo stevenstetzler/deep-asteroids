@@ -181,7 +181,7 @@ claimed to finished) and to be **measured** in the pilot:
 
 For scale only (not part of this issue): the whole survey is 436,313
 detections at 3.27 s = **396.7 CPU-hours** plus 5,573 searches at 20.8 s =
-**32.2 CPU-hours**, about **430 CPU-hours** in all. That is ~4.5 hours of
+**32.2 CPU-hours**, about **430 CPU-hours** in all. That is ~4.3 hours of
 wall time on 100 cores, and it is detection that costs, not search (92%).
 Because each image and each search is independently restartable, it fits
 the preemptible `ckpt` partition (`--account ckpt-astro --partition
