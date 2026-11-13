@@ -220,7 +220,7 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
     return summary
 
 
-def render_light_curve_plot(summary, out_dir, ax=None, fmt="png"):
+def render_light_curve_plot(summary, out_dir, ax=None, fmt="png", title=True):
     """mag vs. MJD TAI, for every in-bounds measurement with a real
     (non-NaN) mag. By default creates and saves its own figure
     (``light_curve.<fmt>``, ``fmt`` e.g. ``"png"``/``"pdf"``), returning
@@ -228,7 +228,8 @@ def render_light_curve_plot(summary, out_dir, ax=None, fmt="png"):
     ``ax`` given) nothing was drawn. With ``ax`` given (an existing
     Axes, e.g. one panel of a larger report figure), draws directly onto
     it instead -- the caller owns saving that figure -- and always
-    returns ``None``."""
+    returns ``None``. ``title=False`` skips the axes title (e.g. when a
+    report page already names the result elsewhere)."""
     import matplotlib
     matplotlib.use("Agg")  # headless cluster nodes -- never a display
     import matplotlib.pyplot as plt
@@ -248,7 +249,8 @@ def render_light_curve_plot(summary, out_dir, ax=None, fmt="png"):
     ax.invert_yaxis()
     ax.set_xlabel("MJD TAI")
     ax.set_ylabel("mag")
-    ax.set_title(f"{summary.label()}: light curve")
+    if title:
+        ax.set_title(f"{summary.label()}: light curve")
 
     if fig is None:
         return None
@@ -315,13 +317,13 @@ def _zscale_limits(data):
     return (vmin, vmax) if vmin < vmax else (vmin - 0.5, vmax + 0.5)
 
 
-def render_coadd_plot(summary, out_dir, ax=None, fmt="png"):
+def render_coadd_plot(summary, out_dir, ax=None, fmt="png", title=True):
     """The median-stacked cutout, ZScale-stretched. By default creates and
     saves its own figure (``coadd.<fmt>``), returning its path -- or
     ``None`` if there are no cutouts to stack, or (with ``ax`` given)
     nothing was drawn. With ``ax`` given, draws directly onto it instead
     (the caller owns saving) and always returns ``None`` -- see
-    ``render_light_curve_plot()``."""
+    ``render_light_curve_plot()``. ``title=False`` skips the axes title."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -341,7 +343,8 @@ def render_coadd_plot(summary, out_dir, ax=None, fmt="png"):
         fig, ax = plt.subplots(figsize=(5, 5), dpi=110)
     vmin, vmax = _zscale_limits(coadd)
     ax.imshow(coadd, cmap="gray", vmin=vmin, vmax=vmax, origin="lower")
-    ax.set_title(f"{summary.label()}: coadd ({len(frames)} image(s))")
+    if title:
+        ax.set_title(f"{summary.label()}: coadd ({len(frames)} image(s))")
     ax.axis("off")
 
     if fig is None:

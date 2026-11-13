@@ -656,12 +656,16 @@ A "Download PDF" button (top right) links to a pre-rendered, one-page
 `<run_id>-result-<result_num>.pdf` written alongside `index.html` (`render_result_pdf()`,
 matplotlib's own PDF backend -- no extra PDF software needed): an 11in x 8.5in page with a
 0.5in margin on every side (a 10in x 7.5in content area), a 1in title band (centered) across
-the top, the summary stats top-left (5in x 3.25in, with 0.25in padding) and the coadd top-right
-(3.25in square), then the sky plot bottom-left and the light curve bottom-right (both 5in wide
-x 3.25in tall). The sky/coadd/light curve plots are drawn directly onto the report's own axes
-from the same measurements/cutouts `viz result` already computed (not a rasterized copy of the
-page's own PNGs) -- genuinely vector output, so it stays crisp at any zoom, without needing an
-extra PDF-manipulation dependency. Skipped (the page gets no button) if any of sky/coadd/light
+the top, the summary stats top-left (5in x 3.25in) and the coadd top-right (3.25in square) --
+both shifted 0.5in higher than their slot's plain top-down position would put them (so the
+title and this top row sit flush against the page's top edge, and a 0.5in gap opens above the
+bottom row instead) -- then the sky plot bottom-left and the light curve bottom-right (both
+5in wide x 3.25in tall). The summary panel and every image box get 0.25in of padding on each
+side, and none of the three plots keeps its own title (the page's own title already names the
+result). The sky/coadd/light curve plots are drawn directly onto the report's own axes from the
+same measurements/cutouts `viz result` already computed (not a rasterized copy of the page's
+own PNGs) -- genuinely vector output, so it stays crisp at any zoom, without needing an extra
+PDF-manipulation dependency. Skipped (the page gets no button) if any of sky/coadd/light
 curve didn't render, e.g. no cutouts survived.
 
 Not done here (follow-up #27 work): the index pages above the leaf (listing nights, fields, CCDs,

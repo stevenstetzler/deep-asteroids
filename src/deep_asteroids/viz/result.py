@@ -138,7 +138,8 @@ def measure_result(session, engine, sd, tracklet, exposures, product_type=DEFAUL
     return summary
 
 
-def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=None, fmt="png"):
+def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=None, fmt="png",
+                    title=True):
     """The result's gathered (observed) detections colored by time, with
     its tracklet's predicted track as an arrow over the searched time
     span and an x at the predicted position in every exposure (salad's
@@ -147,7 +148,8 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     ``None`` if there's nothing gathered to plot, or (with ``ax`` given)
     nothing was drawn. With ``ax`` given, draws directly onto it instead
     (the caller owns saving) and always returns ``None`` -- see
-    ``viz/tracklet.py``'s ``render_light_curve_plot()``."""
+    ``viz/tracklet.py``'s ``render_light_curve_plot()``. ``title=False``
+    skips the axes title."""
     if not gathered:
         return None
 
@@ -180,7 +182,8 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     ax.set_ylim(ys.min() - ypad, ys.max() + ypad)
     ax.set_xlabel("RA (deg)")
     ax.set_ylabel("Dec (deg)")
-    ax.set_title(f"{run_id} #{result_num}: sky")
+    if title:
+        ax.set_title(f"{run_id} #{result_num}: sky")
     ax.legend(loc="best")
 
     if fig is None:

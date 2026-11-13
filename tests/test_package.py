@@ -77,6 +77,35 @@ def test_render_result_pdf_needs_sky_coadd_light_curve(session, definition, resu
     assert render_result_pdf(definition, h.RUN_ID, result_num, summary, None, out_dir) is None
 
 
+def test_plot_functions_can_suppress_their_own_title(session, definition, result_num, tmp_path):
+    """The report draws sky/coadd/light curve with title=False (the page's own title already
+    names the result); the standalone png/pdf artifacts still get one (title=True, the
+    default)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from deep_asteroids.viz.result import visualize_result
+    from deep_asteroids.viz.tracklet import render_coadd_plot, render_light_curve_plot
+
+    summary = visualize_result(session, h.FakeCutoutEngine(), h.RUN_ID, result_num, tmp_path / "out")
+
+    fig, ax = plt.subplots()
+    render_light_curve_plot(summary, tmp_path, ax=ax, title=False)
+    assert ax.get_title() == ""
+    plt.close(fig)
+
+    fig, ax = plt.subplots()
+    render_light_curve_plot(summary, tmp_path, ax=ax)
+    assert ax.get_title() != ""
+    plt.close(fig)
+
+    fig, ax = plt.subplots()
+    render_coadd_plot(summary, tmp_path, ax=ax, title=False)
+    assert ax.get_title() == ""
+    plt.close(fig)
+
+
 def test_package_result_missing_result(session, definition, tmp_path):
     skipped, path = package_result(session, h.FakeCutoutEngine(), definition, 999, tmp_path)
     assert not skipped and path is None
