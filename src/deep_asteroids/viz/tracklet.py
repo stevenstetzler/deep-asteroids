@@ -220,10 +220,16 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
     return summary
 
 
-def render_light_curve_plot(summary, out_dir):
-    """``light_curve.png``: mag vs. MJD TAI, for every in-bounds
-    measurement with a real (non-NaN) mag. Returns the path, or ``None``
-    if there's nothing to plot."""
+def render_light_curve_plot(summary, out_dir, ax=None, fmt="png", title=True):
+    """mag vs. MJD TAI, for every in-bounds measurement with a real
+    (non-NaN) mag. By default creates and saves its own figure
+    (``light_curve.<fmt>``, ``fmt`` e.g. ``"png"``/``"pdf"``), returning
+    its path -- or ``None`` if there's nothing to plot, or (with
+    ``ax`` given) nothing was drawn. With ``ax`` given (an existing
+    Axes, e.g. one panel of a larger report figure), draws directly onto
+    it instead -- the caller owns saving that figure -- and always
+    returns ``None``. ``title=False`` skips the axes title (e.g. when a
+    report page already names the result elsewhere)."""
     import matplotlib
     matplotlib.use("Agg")  # headless cluster nodes -- never a display
     import matplotlib.pyplot as plt
@@ -232,7 +238,9 @@ def render_light_curve_plot(summary, out_dir):
     if not rows:
         return None
 
-    fig, ax = plt.subplots(figsize=(7, 5), dpi=110)
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(7, 5), dpi=110)
     t = [m.mjd_tai for m in rows]
     mag = [m.mag for m in rows]
     yerr_lo = [m.mag_err_lo or 0.0 for m in rows]
@@ -241,10 +249,13 @@ def render_light_curve_plot(summary, out_dir):
     ax.invert_yaxis()
     ax.set_xlabel("MJD TAI")
     ax.set_ylabel("mag")
-    ax.set_title(f"{summary.label()}: light curve")
+    if title:
+        ax.set_title(f"{summary.label()}: light curve")
 
+    if fig is None:
+        return None
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "light_curve.png"
+    path = out_dir / f"light_curve.{fmt}"
     fig.savefig(path)
     plt.close(fig)
     return path
@@ -254,7 +265,19 @@ def _cutout_stack(summary):
     """[(TrackletMeasurement, 2D array), ...], chronological, for every
     measurement with a cutout that still exists on disk -- shared by
     render_coadd_plot()/render_movie() (the latter also needs each
-    measurement's own night/field/expnum, for --annotate)."""
+    measurement's own night/field/expnum, for --annotate).
+
+    Cached on ``summary`` after the first call: callers that discard their
+    cutouts once rendered (``viz/result.py``'s ``visualize_result()``, via
+    a temporary directory) still get the same frames back on a later call
+    -- e.g. a combined report redrawing the coadd in vector form well
+    after that directory is gone -- as long as the first call (which
+    populates the cache from disk) happens while the cutouts still
+    exist."""
+    cached = getattr(summary, "_cutout_stack_cache", None)
+    if cached is not None:
+        return cached
+
     from pathlib import Path as _Path
 
     from astropy.io import fits
@@ -273,6 +296,7 @@ def _cutout_stack(summary):
     # or not" by, so this doesn't trust that upstream invariant silently --
     # matches salad's own mpc_viz.py, which re-sorts here too.
     frames.sort(key=lambda f: f[0].mjd_tai)
+    summary._cutout_stack_cache = frames
     return frames
 
 
@@ -293,9 +317,13 @@ def _zscale_limits(data):
     return (vmin, vmax) if vmin < vmax else (vmin - 0.5, vmax + 0.5)
 
 
-def render_coadd_plot(summary, out_dir):
-    """``coadd.png``: the median-stacked cutout, ZScale-stretched.
-    Returns the path, or ``None`` if there are no cutouts to stack."""
+def render_coadd_plot(summary, out_dir, ax=None, fmt="png", title=True):
+    """The median-stacked cutout, ZScale-stretched. By default creates and
+    saves its own figure (``coadd.<fmt>``), returning its path -- or
+    ``None`` if there are no cutouts to stack, or (with ``ax`` given)
+    nothing was drawn. With ``ax`` given, draws directly onto it instead
+    (the caller owns saving) and always returns ``None`` -- see
+    ``render_light_curve_plot()``. ``title=False`` skips the axes title."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -310,14 +338,19 @@ def render_coadd_plot(summary, out_dir):
         log.warning("%s: coadd has no finite pixels, skipping", summary.label())
         return None
 
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 5), dpi=110)
     vmin, vmax = _zscale_limits(coadd)
-    fig, ax = plt.subplots(figsize=(5, 5), dpi=110)
     ax.imshow(coadd, cmap="gray", vmin=vmin, vmax=vmax, origin="lower")
-    ax.set_title(f"{summary.label()}: coadd ({len(frames)} image(s))")
+    if title:
+        ax.set_title(f"{summary.label()}: coadd ({len(frames)} image(s))")
     ax.axis("off")
 
+    if fig is None:
+        return None
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "coadd.png"
+    path = out_dir / f"coadd.{fmt}"
     fig.savefig(path)
     plt.close(fig)
     return path

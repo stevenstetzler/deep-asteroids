@@ -225,3 +225,19 @@ agent/
 # local databases
 *.sqlite
 src/deep_asteroids/_version.py
+
+# `deep-asteroids package`'s static site (#27): regenerated on demand, not committed --
+# except the one example result below, kept so the layout/pages can be reviewed without
+# rerunning the real pipeline. Each level needs its own un-ignore for git to recurse into it.
+/web/*
+!/web/results/
+/web/results/*
+!/web/results/20190402/
+/web/results/20190402/*
+!/web/results/20190402/A0b/
+/web/results/20190402/A0b/*
+!/web/results/20190402/A0b/ccd41/
+/web/results/20190402/A0b/ccd41/*
+!/web/results/20190402/A0b/ccd41/VR/
+/web/results/20190402/A0b/ccd41/VR/*
+!/web/results/20190402/A0b/ccd41/VR/24/

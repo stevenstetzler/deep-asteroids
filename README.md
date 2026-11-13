@@ -600,6 +600,83 @@ script per case (`mpchecker_612388.sh`, `mpc_observation_592187.sh`,
 `synthetic_503133.sh`) that reproduces them end to end against the real
 registry/repo -- see `examples/README.md`.
 
+## Visualizing find-asteroids results
+
+```bash
+deep-asteroids viz result --run-id R --result-num N [--out-dir DIR] [--product-type differenceExp] \
+    [--cutout-size 51] [--plot-format png|pdf] [--annotate TEMPLATE]
+```
+
+The result analog of `viz tracklet` (#27): cutouts + forced photometry + light curve + coadd +
+movie, at one ingested find-asteroids result's own tracklet's predicted position, for every
+exposure of its search definition that the tracklet's fit (`tmin`/`tmax`) spans -- plus
+a sky plot, the result's gathered (observed) detections colored by time against the tracklet's
+predicted track (salad's sky plot). Unlike `viz tracklet`, cutouts are written to a temporary
+directory and discarded once rendered: only the four plots are kept in `--out-dir` (default
+`./viz/result/<run_id>/<result_num>/`). `--annotate` is the same `str.format()` template as
+`viz tracklet`'s. `--plot-format pdf` writes the light curve/coadd/sky plots as vector PDFs
+instead of PNGs (the movie is always a gif -- there's no vector equivalent of an animation).
+
+Needs `ingest searches`, `ingest images` and the run's results already ingested (`search run`),
+and the vendored cutout engine built (above). Promoted from the one-off
+`examples/viz_result.py` script (PRs #14/#20) into a CLI primitive; `examples/result_ccd41_24.sh`
+reproduces result 24 of `deep-decam-A0b-ccd41-20190402-VR` end to end (`search run` then `viz
+result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
+
+## The static result site
+
+```bash
+deep-asteroids package (--run-id R | --night N --field F --detector-number D [--band B]) \
+    [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
+    [--annotate TEMPLATE] [--force]
+```
+
+#27's web-based interface, as a plain static site -- no server, nothing dynamic: one cached page
+per result, written to
+
+```
+web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html
+```
+
+`<night>/<field>/ccd<detector_number>` is the data subset (a CCD's data over one night,
+independent of band -- what `query coverage` already tracks); `<band>` (`all` for the
+undefined-band union) is the search performed on it -- today a 1:1 `search_definition`/`run_id`,
+but its own directory level in case a data subset is ever searched more than one way; `<result_
+num>` is the result itself. Each page embeds the same four plots `viz result` renders
+(`light_curve.png`/`coadd.png`/`movie.gif`/`sky.png`) plus a small table of the result's own
+stats (`n`, `vra`/`vdec`, `sigma_v`), in equal-width columns (summary | sky | coadd | light
+curve | movie) that the browser wraps row-to-column on its own as the window narrows -- no JS,
+no explicit mobile breakpoint, just a shared `min-width` on every column. Every plot's CSS
+height matches the movie's own rendered height, so they line up regardless of each plot's own
+aspect ratio. Selects search definitions the same way `search run` does; every one of their
+results is packaged unless `--result-num` narrows it. A page that already exists is left alone
+(the cache) unless `--force`.
+
+A "Download PDF" button (top right) links to a pre-rendered, one-page
+`<run_id>-result-<result_num>.pdf` written alongside `index.html` (`render_result_pdf()`,
+matplotlib's own PDF backend -- no extra PDF software needed): an 11in x 8.5in page with a
+0.5in margin on every side (a 10in x 7.5in content area), a 1in title band (centered) across
+the top, the summary stats top-left (5in x 3.25in) and the coadd top-right (3.25in square) --
+both shifted 0.5in higher than their slot's plain top-down position would put them (so the
+title and this top row sit flush against the page's top edge, and a 0.5in gap opens above the
+bottom row instead) -- then the sky plot bottom-left and the light curve bottom-right (both
+5in wide x 3.25in tall). The summary panel and every image box get 0.25in of padding on each
+side, and none of the three plots keeps its own title (the page's own title already names the
+result). The sky/coadd/light curve plots are drawn directly onto the report's own axes from the
+same measurements/cutouts `viz result` already computed (not a rasterized copy of the page's
+own PNGs) -- genuinely vector output, so it stays crisp at any zoom, without needing an extra
+PDF-manipulation dependency. Skipped (the page gets no button) if any of sky/coadd/light
+curve didn't render, e.g. no cutouts survived.
+
+Not done here (follow-up #27 work): the index pages above the leaf (listing nights, fields, CCDs,
+bands, and the coverage/search-tracking pages from #26) -- this lays down the leaf page and its
+URL scheme first.
+
+`examples/package_ccd41_24.sh` reproduces the one page committed under `web/`
+(`web/results/20190402/A0b/ccd41/VR/24/`) end to end against the real registry/repo, the same
+way `examples/result_ccd41_24.sh` reproduces its `viz result` counterpart -- see
+`examples/README.md`.
+
 ## Known-object tracklets
 
 ```bash

@@ -112,3 +112,44 @@ def linked(ctx, night, out_dir, min_members, linked_ids, limit, sheets):
         raise click.ClickException(f"no linked tracklet with at least {min_members} members on night {night} "
                                    "(run `link --night` first?)")
     click.echo(summary.format() + f" in {out_dir}")
+
+
+@viz.command()
+@click.option("--run-id", required=True, type=str, help="A search definition's run_id")
+@click.option("--result-num", required=True, type=int, help="The result's index within the run")
+@click.option("--out-dir", type=click.Path(file_okay=False), default=None,
+              help="Default: ./viz/result/<run_id>/<result_num>/")
+@click.option("--product-type", default="differenceExp", show_default=True)
+@click.option("--cutout-size", type=int, default=51, show_default=True)
+@click.option("--plot-format", type=click.Choice(["png", "pdf"]), default="png", show_default=True,
+              help="Format for the light curve/coadd/sky plots (vector with pdf); the movie is always a gif")
+@click.option("--annotate", type=str, default=None,
+              help="A str.format() template (e.g. '{night}/{field}/{expnum}') drawn in white at the top of "
+                   "each movie frame, shrunk/truncated to fit the frame width. Fields: night, field, expnum, "
+                   "mjd_tai, ra, dec, mag.")
+@click.pass_context
+def result(ctx, run_id, result_num, out_dir, product_type, cutout_size, plot_format, annotate):
+    """Cutouts + forced photometry + light curve + coadd + movie + sky plot for one
+    ingested find-asteroids result, at its own tracklet's predicted position in every
+    exposure of its search that the tracklet's fit spans.
+
+    Needs `ingest searches`, `ingest images` and the run's results already in the
+    database (`search run`), and the vendored cutout_and_photometry engine built (see
+    src/deep_asteroids/util/cutout_engine/VENDORED_FROM.md). Unlike `viz tracklet`,
+    cutouts are discarded once rendered -- only the four plots are kept."""
+    from pathlib import Path
+
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import get_db
+    from deep_asteroids.util.cutout import LSSTCutoutPhotometry
+    from deep_asteroids.viz.result import visualize_result
+
+    engine = LSSTCutoutPhotometry()
+    out_dir = Path(out_dir) if out_dir else Path("viz") / "result" / run_id / str(result_num)
+    with Session(get_db()) as session:
+        summary = visualize_result(session, engine, run_id, result_num, out_dir, product_type=product_type,
+                                   cutout_size=cutout_size, annotate=annotate, plot_format=plot_format)
+    if summary is None:
+        raise click.ClickException(f"no result {result_num} for run_id {run_id} (run `ingest results` first?)")
+    click.echo(summary.format())
