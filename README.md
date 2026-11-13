@@ -289,6 +289,83 @@ with the images in the file cache and 74 s cold (about 2.9 CPU-seconds per
 image cold), the search 10 s, the ingest 3 s, and the peak memory was 557 MB
 (salad's recorded means: 3.3 s per image and 21 s per search).
 
+## De-duplicating and cross-matching results
+
+```bash
+deep-asteroids dedup [--night N ...] [--field F ...] [--run-id R ...] [--merge-radius-arcsec 2] [--force]
+deep-asteroids crossmatch [synthetic|mpc-observations|mpc-ephemeris ...] [--night N ...] [--run-id R ...] \
+    [--max-sep-arcsec 30] [--submitted-radius-arcsec 2] [--known-radius-arcsec 10] [--synthetic-radius-arcsec 2] [--force]
+deep-asteroids query crossmatches [--source S] [--night N] [--run-id R] [--max-mean-sep-arcsec X] [--all] \
+    [--authoritative-only] [--header] [--output FILE]
+```
+
+**`dedup`** groups redetections of the same object among a night's results.
+A search commonly finds one object in several adjacent search cells, and on
+several CCDs of a pointing group, each a separate `result`/`tracklet`. Per
+`(night, field)` group (every search of every CCD of that field that night),
+two results are redetections when their tracklets agree, *on average over the
+group's exposure times* (deep-db's midpoints, in TAI), to within
+`--merge-radius-arcsec`; a cluster is the transitive closure of that. One member of
+each cluster is authoritative: the one with the most Hough-stage points
+(`result.n`), the lowest id breaking ties. Nothing is deleted, refit or
+created: the `result_dedup` table records each result's cluster, and counting
+distinct objects is counting `is_authoritative` rows. `--run-id` clusters only
+those runs' results.
+
+**`crossmatch`** matches each result's tracklet against every fitted
+`known_tracklet` of the same night, evaluating both at the search's exposure
+times (deep-db's UTC midpoints, in TAI; no offset anywhere). The sources are
+the submitted observations (`mpc_observation`), the known objects
+(`mpchecker` ephemerides) and the synthetic (fake) objects. Every pair below
+`--max-sep-arcsec` mean separation is stored in `crossmatch`, with its mean,
+minimum, maximum and total separation and the velocity difference: all
+candidates, not just the closest, since one result often matches both a
+submitted tracklet and an ephemeris. The printed table counts the results
+whose closest candidate of each source is within that source's radius
+(submitted 2", known 10", synthetic 2"), and how many of them are distinct
+(authoritative) objects. `query crossmatches` prints the closest candidate of
+each source for each result (`--all` for every stored one).
+
+Both are idempotent (`crossmatch` per search run, `dedup` per pointing group;
+`--force` redoes) and need no deep-db: `known_tracklet` is already fit and
+lives in the same database. Pairs are found without comparing all of them:
+a pair whose mean separation is below a radius is below it at one of the
+exposures, so a KD-tree per exposure finds every pair that comes near at any
+of them, and only those are tested exactly (`crossmatch/geometry.py`; a test
+checks this against brute force). Matching one 103-exposure CCD's 50 results
+takes under a second; 61 searches of a night's 3,053 results against its
+5,259 known tracklets take 15 s.
+
+Verified on the seeded ccd41 search of night 20190402 (`examples/crossmatch_ccd41.sh`):
+
+| | ours | salad's own, for the same 50 results |
+|---|---|---|
+| results with a candidate under 30" | 3 (results 26, 35, 43) | 3 (the same) |
+| result 26 | submitted `00000F941o` 0.092", known 2003 UD129 0.063" | super_tracklet 0.054" |
+| result 35 | synthetic orbit 3688014 0.031" | fake a3688014 0.033" |
+| result 43 | submitted 2019 GC134 0.078", known 2019 GC134 0.123" | super_tracklet 0.119" |
+| distinct objects (dedup) | 50 of 50 | 50 of 50 |
+
+and, to exercise merging on real redetections, our run together with salad's
+run of the same CCD finds every object twice: 100 results form 50 clusters of
+exactly 2, each pairing the same `result_num`.
+
+Over the whole night (60 searches, 3,003 results; each result classified by its
+closest candidate, as salad stores): synthetic matches under 2" / 10" are 169 / 178
+against salad's 169 / 177, and the total matched under 2" is 559 against 556. The
+split between submitted and known objects differs (206 / 184 against salad's 258 /
+129), as expected: salad first merged split MPC tracklets into `super_tracklet`s,
+which are fit better than the individual trksubs, and this does not (a split object
+matches several rows; `trkid`/`provid` are on each match, so rows can be grouped). Dedup
+merges more than salad's did (3,003 results to 2,972 distinct objects against
+salad's 2,997 within its runs): salad ran with an extra
+`velocity_range: search` restriction and refit merged clusters, neither of which is
+ported; with the same restriction we merge 1, not its 6, so the difference is not
+fully explained.
+
+Not done here (the plan's later steps): the per-result statistics and the "putative
+new" filter, the summary funnel, and the plots.
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++

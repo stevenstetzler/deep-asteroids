@@ -74,6 +74,7 @@ def create_db(force=False):
 def import_models():
     """Import every module that declares deep-asteroids tables, registering
     them on ``Base.metadata`` (find-asteroids' tables come with ``models``)."""
+    import deep_asteroids.database.crossmatch
     import deep_asteroids.database.images
     import deep_asteroids.database.models
     import deep_asteroids.database.search
