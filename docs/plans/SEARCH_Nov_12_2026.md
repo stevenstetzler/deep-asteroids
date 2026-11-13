@@ -31,27 +31,24 @@ Where the time comes from, traced end to end:
 
 So the previous search's detections carry deep-db's midpoint **+ 0.5 s**,
 and everything downstream is consistent. 0.5 s is ~0.005" for a 0.26 deg/day
-mover, far below anything visible, but it matters for reproducing the
-previous run **exactly**: to get the same catalog, the same 0.5 s must be
-there. The earlier note about a ~69 s discrepancy was most likely about
+mover, far below anything visible, and it does not change a search's results:
+the Hough search and the refinement depend only on time differences, so a
+constant shift of every label leaves them unchanged (the reproduction below
+confirms it). The earlier note about a ~69 s discrepancy was most likely about
 salad's `image` table times (a separate, unused column), not the catalog.
 
-**DECISION 1 (shutter label), decided: the 0.5 s belongs in deep-db's
-midpoint** (deep-db issue #17, which lays out the options and the derived
-tables it affects). Our primitives therefore take each exposure's time from
-deep-db (`search_definition_exposure.midpoint_mjd`, UTC) plus
-`--shutter-offset-seconds`, **default 0**: once deep-db's midpoint includes
-the shutter latency, nothing is added here, and there is one source of truth.
-The engine's own VisitInfo-derived MJD is only checked against it (they
-should agree to a few microseconds).
-
-Until deep-db changes, its midpoint is 0.5 s earlier than the previous run's
-labels, so the reproduction passes `--shutter-offset-seconds 0.5` explicitly.
-The constant is recorded with each run, so a run is self-describing before
-and after the change; after it lands, the reproduction is rerun with 0 as a
-check (the new midpoint equals the old labels). If deep-db instead adds a
-separate column (option C in that issue), the wrapper reads that column and
-the constant stays 0.
+**DECISION 1 (time labels), decided: no shutter-time handling in
+deep-asteroids.** A search labels each exposure with deep-db's exposure
+midpoint (`search_definition_exposure.midpoint_mjd`, UTC) exactly, the same
+time the known-object and synthetic ephemerides are evaluated at, so the
+timing matches by construction. The detection engine's own exposure time is
+not used, and there is no `--shutter-offset-seconds` and no engine-time
+check. The 0.5 s only differs from salad's earlier labels, which is
+irrelevant to the searches we run; if it ever matters, it belongs in
+deep-db's midpoint (deep-db issue #17), not here. The reproduction therefore
+compares against salad's run after measuring its time-label offset from the
+data (+0.500 s, spread 0.09 ms) and removing it, so the comparison does not
+assume it.
 
 ## What already exists
 
@@ -95,7 +92,7 @@ thin CLI), and nothing that touches a queue or a scheduler:
 |---|---|---|
 | `util/detect_engine/` | vendor salad's real `detect_common.h`, `detect_and_measure.cc`, `detect_csv_to_table.py` byte-for-byte, plus an adapted `build.sh` and a `VENDORED_FROM.md`, like `cutout_engine/` (whose notes say to vendor the full engine separately when detection is needed) | `salad/src/salad/detect/engine/` |
 | `util/detect.py` | `LSSTDetector.detect(image_uri, threshold=5.0, polarity="positive") -> astropy Table`, wrapping the binary, same shape as `util/cutout.py` | `salad/detect/lsst_cpp.py` |
-| `search/detect.py` | `detect_exposures(session, search_definition, catalog_dir)`: for each exposure's image, write `<catalog_dir>/<detector_exposure_id>.ecsv` with a provenance header (engine, threshold, polarity, image uri, shutter offset); skips a file that exists, `force` redoes | `salad/detect/__init__.py` (`write_catalog`) |
+| `search/detect.py` | `detect_exposures(session, search_definition, catalog_dir)`: for each exposure's image, write `<catalog_dir>/<detector_exposure_id>.ecsv` with a provenance header (engine, threshold, polarity, image uri); skips a file that exists, `force` redoes | `salad/detect/__init__.py` (`write_catalog`) |
 | `search/catalog.py` | `build_catalog(session, search_definition, catalog_dir) -> Table`: every exposure's catalog stacked in time order with `ra`/`dec` in degrees, `time` as a UTC `Time` (so find-asteroids converts it), plus `flux`/`mag` and a `detector_exposure_id` column. Handles an empty exposure (no rows) | `salad/search.py::catalog_for_images` and its empty-catalog fixes |
 | `search/run.py` | `run_search_for_definition(session, search_definition, catalog, velocity, angle, dx, num_results, refine_iterations, seed)`: calls `find_asteroids.search.run_search` into a temporary results directory, then `ingest_results_dir(..., run_id=search_definition.run_id, params=...)`. Skips a run_id that already has a `search` row unless `force` | `salad/search.py::run_search_for_images` |
 | CLI | `deep-asteroids search detect` and `deep-asteroids search run`, selecting by `--night/--field/--detector-number/--band` (or `--run-id`), with the search parameters as options and salad's as defaults | `cli/ingest.py` |
@@ -156,7 +153,7 @@ definition `deep-decam-A0b-ccd42-20190402-VR` (103 exposures).
 ```
 deep-asteroids search run --night 20190402 --field A0b --detector-number 42 --band VR \
     --velocity 0.1 0.5 --angle 0 359.99 --dx 10 --num-results 50 --refine-iterations 1 \
-    --shutter-offset-seconds 0.5 [--remove-catalogs]
+    [--remove-catalogs]
 ```
 
 Before relying on the new engine build, a one-image check first, as for the
@@ -175,7 +172,7 @@ deterministic, reporting counts instead of one pass/fail:
 
 | level | check | expected |
 |---|---|---|
-| L0 detector | every distinct old `gathered` point matches a new catalog row in the same exposure within 0.05"; `flux`/`mag` agree; per-image detection counts | all match (the engine is deterministic, and the time label is made equal via Decision 1) |
+| L0 detector | every distinct old `gathered` point matches a new catalog row in the same exposure within 0.05"; `flux`/`mag` agree; per-image detection counts | all match (the engine is deterministic; the old run's time labels are aligned first, see Decision 1) |
 | L1 Hough search | per `result_num`: `x, y, direction, n` | identical for all 50, in the same order (the CPU search is deterministic on the same catalog; **catalog row order matters** because ties in the Hough maximum may break by position, so we stack in the old image-id order) |
 | L2 refinement | `tracklet` parameters, `n1/n2/n5/n10`, and the gathered set per result | agree within the noise floor: first rerun the new search twice, seeded and unseeded, to measure it, then require old-vs-new differences within a small multiple of that floor |
 | L3 outputs | the same through `gathered`, `points`, the ingested rows | consistent with L2 |
@@ -209,7 +206,7 @@ files.
 
 ## Open questions
 
-1. D1-D3 are decided (above); what is open is deep-db issue #17's option (A, B or C), which only changes whether the shutter constant is 0.5 or 0 in the reproduction.
+1. D1-D3 are decided (above). deep-db issue #17 is independent of this work.
 2. Salad's timings are per-task wall time on shared nodes, with no CPU count
    recorded, so the CPU-hour figures are rough; the pilot gives real
    per-image and per-search numbers on a known allocation.
