@@ -31,7 +31,8 @@ _ARTIFACT_LABELS = (
     ("movie", "Movie"),
 )
 
-_MOBILE_BREAKPOINT_PX = 700
+_DEFAULT_IMG_HEIGHT_PX = 220
+_COLUMN_MIN_WIDTH_PX = 220
 
 
 def band_slug(band):
@@ -61,15 +62,31 @@ def _result_stats(session, run_id, result_num):
     return n, vra, vdec, sigma_v
 
 
+def _movie_height_px(summary):
+    """The movie's own rendered pixel height, so the other plots can be set to match it and
+    everything lines up in a row -- falls back to ``_DEFAULT_IMG_HEIGHT_PX`` if there's no
+    movie (e.g. no cutouts survived) or it can't be read."""
+    path = summary.artifacts.get("movie")
+    if path:
+        try:
+            from PIL import Image as PILImage
+
+            with PILImage.open(path) as im:
+                return im.height
+        except OSError:
+            pass
+    return _DEFAULT_IMG_HEIGHT_PX
+
+
 def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
     """Writes ``index.html`` in ``out_dir``, referencing the artifacts ``summary`` already
     wrote there (relative paths -- the page and its images are always deployed together).
 
-    Five equal-width columns -- summary | sky | coadd | light curve | movie -- that wrap
-    into a single column below ``_MOBILE_BREAKPOINT_PX``. On a narrow screen only the title
-    stays fixed at the top; the summary becomes a closed, tap-to-open ``<details>`` (a plain
-    CSS override forces it open and hides its toggle arrow above the breakpoint, where it's
-    just another column, no tapping needed). Returns the path."""
+    Plain equal-width flex columns -- summary | sky | coadd | light curve | movie -- with no
+    explicit mobile breakpoint: each column has the same ``min-width``, so the browser wraps
+    row to column on its own as space runs out, from a wide desktop window down to a phone.
+    Every plot is set to the movie's own rendered height (``width: auto`` alongside it) so
+    they all line up regardless of each plot's own aspect ratio. Returns the path."""
     esc = html.escape
     title = f"{esc(run_id)} result {result_num}"
     rows = [
@@ -92,6 +109,7 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
         f"<figcaption>{esc(label)}</figcaption></figure>"
         for kind, label in _ARTIFACT_LABELS if kind in summary.artifacts
     )
+    img_height = _movie_height_px(summary)
     page = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -101,34 +119,25 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir):
   <style>
     body {{ font-family: sans-serif; margin: 2em; background: #fafafa; color: #111; }}
     .columns {{ display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5em; }}
-    .col {{ flex: 1 1 200px; min-width: 200px; margin: 0; }}
-    .col img {{ width: 100%; height: auto; background: #000; display: block; }}
+    .col {{ flex: 1 1 {_COLUMN_MIN_WIDTH_PX}px; min-width: {_COLUMN_MIN_WIDTH_PX}px; margin: 0; }}
+    .col h2 {{ font-size: 1em; font-weight: normal; color: #555; margin: 0 0 0.5em 0; }}
+    .col img {{ height: {img_height}px; width: auto; max-width: 100%; display: block; margin: 0 auto;
+               background: #000; }}
     figcaption {{ text-align: center; color: #555; margin-top: 0.3em; }}
     table {{ border-collapse: collapse; width: 100%; }}
     th, td {{ text-align: left; padding: 0.15em 0.6em; font-size: 0.9em; }}
     th {{ color: #555; font-weight: normal; }}
-    details.col > summary {{ cursor: pointer; font-weight: bold; margin-bottom: 0.5em; list-style: none; }}
-    details.col > summary::-webkit-details-marker {{ display: none; }}
-    details.col > summary::before {{ content: "\\25b8  "; }}
-    details.col[open] > summary::before {{ content: "\\25be  "; }}
-    @media (min-width: {_MOBILE_BREAKPOINT_PX + 1}px) {{
-      details.col > summary {{ display: none; }}
-      details.col > table {{ display: table !important; }}
-    }}
-    @media (max-width: {_MOBILE_BREAKPOINT_PX}px) {{
-      .col {{ flex-basis: 100%; }}
-    }}
   </style>
 </head>
 <body>
   <h1>{title}</h1>
   <div class="columns">
-    <details class="col">
-      <summary>Summary</summary>
+    <div class="col">
+      <h2>Summary</h2>
       <table>
 {table}
       </table>
-    </details>
+    </div>
 {figures}
   </div>
 </body>

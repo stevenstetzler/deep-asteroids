@@ -7,30 +7,21 @@
   <style>
     body { font-family: sans-serif; margin: 2em; background: #fafafa; color: #111; }
     .columns { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5em; }
-    .col { flex: 1 1 200px; min-width: 200px; margin: 0; }
-    .col img { width: 100%; height: auto; background: #000; display: block; }
+    .col { flex: 1 1 220px; min-width: 220px; margin: 0; }
+    .col h2 { font-size: 1em; font-weight: normal; color: #555; margin: 0 0 0.5em 0; }
+    .col img { height: 204px; width: auto; max-width: 100%; display: block; margin: 0 auto;
+               background: #000; }
     figcaption { text-align: center; color: #555; margin-top: 0.3em; }
     table { border-collapse: collapse; width: 100%; }
     th, td { text-align: left; padding: 0.15em 0.6em; font-size: 0.9em; }
     th { color: #555; font-weight: normal; }
-    details.col > summary { cursor: pointer; font-weight: bold; margin-bottom: 0.5em; list-style: none; }
-    details.col > summary::-webkit-details-marker { display: none; }
-    details.col > summary::before { content: "\25b8  "; }
-    details.col[open] > summary::before { content: "\25be  "; }
-    @media (min-width: 701px) {
-      details.col > summary { display: none; }
-      details.col > table { display: table !important; }
-    }
-    @media (max-width: 700px) {
-      .col { flex-basis: 100%; }
-    }
   </style>
 </head>
 <body>
   <h1>deep-decam-A0b-ccd41-20190402-VR result 24</h1>
   <div class="columns">
-    <details class="col">
-      <summary>Summary</summary>
+    <div class="col">
+      <h2>Summary</h2>
       <table>
       <tr><th>night</th><td>20190402</td></tr>
       <tr><th>field</th><td>A0b</td></tr>
@@ -46,7 +37,7 @@
       <tr><th>images found</th><td>103</td></tr>
       <tr><th>measurements</th><td>103</td></tr>
       </table>
-    </details>
+    </div>
     <figure class="col"><img src="sky.png" alt="Sky"><figcaption>Sky</figcaption></figure>
     <figure class="col"><img src="coadd.png" alt="Coadd"><figcaption>Coadd</figcaption></figure>
     <figure class="col"><img src="light_curve.png" alt="Light curve"><figcaption>Light curve</figcaption></figure>
