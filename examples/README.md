@@ -27,6 +27,7 @@ cd examples
 ./mpchecker_612388.sh
 ./mpc_observation_592187.sh
 ./synthetic_503133.sh
+./search_ccd42.sh   # reruns a salad search and compares it; see the table
 ./result_ccd41_24.sh   # also needs a find-asteroids results database; see below
 NIGHT=20190403 FIELD=A0c DETECTOR=10 RESULT_NUM=3 ./result_ccd41_24.sh   # any other result
 ```
@@ -50,6 +51,7 @@ available.
 | `mpc_observation_592187.sh` | MPC observation, 2014 QZ79 (permid 592187), trkid `00000FFqBy` | 20201019 / B1d | 88/88 observations on-chip; a second trkid for the same object that night is flagged `same_obstime_conflict` and intentionally not used here (see the script's own comment) |
 | `synthetic_503133.sh` | synthetic TNO binary, orbit_id 503133 (4.0" separation) | 20190708 / B0a | 121/121 on-chip for both components; wide enough to see barycenter vs. photocenter differ by eye |
 | `result_ccd41_24.sh` | find-asteroids result 24 of `deep-decam-A0b-ccd41-20190402` (from salad's search) | 20190402 / A0b | a real-looking mover: stacked forced-photometry SNR ~100 across all 103 exposures. Copies the run from `$RESULTS_DB` (default salad's Postgres, `postgresql://$USER@localhost:55432/salad`), then `viz_result.py` measures at the result's own tracklet position (at deep-db's UTC midpoint in TAI plus salad's 0.5 s shutter label). Defaults to that result, but `$NIGHT`/`$FIELD`/`$DETECTOR`/`$RESULT_NUM` (and `$RUN_ID`, `$SHUTTER_OFFSET_SECONDS`) select another. Writes `light_curve.png`, `coadd.png`, `movie.gif` and `sky.png` (observed gathered detections vs. the tracklet's predicted positions, after salad's `render_sky_plot`) to `docs/examples/viz/result_<night>_ccd<detector>_<result>/` |
+| `search_ccd42.sh` | `search run` on band VR, detector 42, then `compare_search.py` against salad's earlier run, plus the refinement's seed-to-seed noise floor | 20190402 / A0b | the reproducibility check for #16. Needs the detect engine built and salad's Postgres (`$RESULTS_DB`) up; `$NIGHT`/`$FIELD`/`$DETECTOR`/`$BAND` select another search. Writes its report to `docs/examples/search/` |
 
 Each writes `light_curve.png`, `coadd.png`, `movie.gif` and one `<id>.fits`
 cutout per exposure -- see the main README's "Visualizing known objects"

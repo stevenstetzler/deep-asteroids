@@ -231,6 +231,64 @@ Verified on night 20190402 from salad's database: 60 runs, 3,003 results,
 293,136 gathered, 168,828 points and 3,003 tracklets, matching the source
 row for row, in about 45 s; all 60 run_ids match a `search_definition`.
 
+## Searches
+
+```bash
+deep-asteroids search run (--run-id R | --night N --field F --detector-number D --band B) \
+    [--catalog-dir DIR] [--velocity 0.1 0.5] [--angle 0 359.99] [--dx 10] [--num-results 50] \
+    [--refine-iterations 1] [--seed 0] [--shutter-offset-seconds 0] [--workers W] [--force] [--remove-catalogs]
+deep-asteroids search detect (same selection) [--catalog-dir DIR] [--threshold 5] [--polarity positive] [--force]
+```
+
+Runs find-asteroids over a search definition and ingests the results under its
+`run_id`. No queue: detection writes one `<detector_exposure_id>.ecsv` catalog
+per image into `--catalog-dir` (default `/gscratch/scrubbed/$USER/deep_asteroids/
+catalogs`; a catalog that exists is skipped), `search run` stacks them in time
+order, runs the search and calls `ingest results`. Re-running skips a run_id
+that already has results; `--force` replaces it. `--remove-catalogs` deletes
+exactly that search's own catalog files once its results are committed (a
+skipped or failed run deletes nothing). A `search_run` row per run records the
+seed, the time offset, the library versions, the CPU count and what each stage
+cost.
+
+Detection needs the vendored `detect_and_measure` engine built once (see
+`src/deep_asteroids/util/detect_engine/VENDORED_FROM.md`; about 1.5 minutes
+inside a Slurm job). Parallelism is sized from the Slurm allocation, never
+`nproc`: one detection process per allocated CPU, and numba's thread count.
+
+- **Time labels.** Each exposure's time is deep-db's midpoint plus
+  `--shutter-offset-seconds`, not the engine's own value. Salad's detection
+  engine labels exposures 0.5 s after deep-db's midpoint (a DECam shutter
+  latency), so reproducing its searches needs `--shutter-offset-seconds 0.5`;
+  the default 0 is for when deep-db's midpoint includes it (see deep-db#17).
+  The engine's value is checked against the label and a warning is logged if
+  they differ by more than 10 ms.
+- **Determinism.** The detector and the Hough search are deterministic. The
+  refinement stage is not: `mcd_regression`'s `MinCovDet` takes no
+  `random_state`, so `--seed` seeds numpy's global RNG around the search
+  (restoring its previous state afterwards). The same seed repeats exactly.
+
+### Reproducing salad's run
+
+`examples/search_ccd42.sh` reruns band VR, night 20190402, field A0b,
+detector 42 and compares it with salad's earlier run
+(`docs/examples/search/`), level by level:
+
+| level | result |
+|---|---|
+| L0 detector | all 3,682 distinct points salad's search gathered are found in the new catalog **exactly** (0" apart, identical flux and mag); the time labels agree to 0.04 ms |
+| L1 Hough | `(x, y, direction, n)` identical for all 50 results, in the same order |
+| L2 refinement | 12/50 results' tracklets differ by more than 0.05" somewhere in the span (max 20"); rerunning with seed 1 or 2 differs from seed 0 in 10-13/50 (max 24"), the same size |
+| L3 outputs | the Hough-stage `points` sets are identical for all 50; the `gathered` sets are identical for 42/50 (median Jaccard 1.0) |
+
+So everything but the unseeded refinement is reproduced exactly, and the
+differences that remain are the refinement's own seed-to-seed noise.
+
+Measured cost of that one CCD on 4 CPUs / 8 GB: 103 images detected in 74 s
+(about 2.9 CPU-seconds per image), 9 s for the search, 3 s to ingest, 90 s
+wall in all, 557 MB peak memory (salad's recorded means: 3.3 s per image and
+21 s per search).
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++
