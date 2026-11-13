@@ -23,7 +23,8 @@ from pathlib import Path
 from find_asteroids.models import Result, Search, Tracklet
 from sqlalchemy import select
 
-from deep_asteroids.viz.result import visualize_result
+from deep_asteroids.viz.result import render_sky_plot, visualize_result
+from deep_asteroids.viz.tracklet import render_coadd_plot, render_light_curve_plot
 
 _ARTIFACT_LABELS = (
     ("sky", "Sky"),
@@ -35,17 +36,22 @@ _ARTIFACT_LABELS = (
 _DEFAULT_IMG_HEIGHT_PX = 220
 _COLUMN_MIN_WIDTH_PX = 220
 
-# the one-page PDF report's layout, in inches -- see render_result_pdf()
-_PDF_WIDTH_IN = 10.0
-_PDF_HEIGHT_IN = 7.5
-_PDF_TITLE_HEIGHT_IN = 0.5
-_PDF_SUMMARY_WIDTH_IN = 2.5
-_PDF_PLOT_COLUMN_WIDTH_IN = 5.0
-_PDF_SKY_HEIGHT_IN = 3.5
-_PDF_LIGHT_CURVE_HEIGHT_IN = 3.5
-_PDF_COADD_WIDTH_IN = 2.5
-_PDF_COADD_HEIGHT_IN = 2.5
-_PDF_FILENAME = "report.pdf"
+# the one-page PDF report's layout, in inches -- see render_result_pdf(). A full US letter
+# page (11x8.5) with a 0.5in margin on every side, leaving a 10x7.5 content area: a 1in title
+# band across the top, then two 3.25in-tall rows -- summary (left, 5in wide) + coadd (right,
+# 3.25in square) on top, sky (left, 5in wide) + light curve (right, 5in wide) on the bottom.
+_PDF_PAGE_WIDTH_IN = 11.0
+_PDF_PAGE_HEIGHT_IN = 8.5
+_PDF_MARGIN_IN = 0.5
+_PDF_CONTENT_WIDTH_IN = _PDF_PAGE_WIDTH_IN - 2 * _PDF_MARGIN_IN
+_PDF_CONTENT_HEIGHT_IN = _PDF_PAGE_HEIGHT_IN - 2 * _PDF_MARGIN_IN
+_PDF_TITLE_HEIGHT_IN = 1.0
+_PDF_ROW_HEIGHT_IN = 3.25
+_PDF_SUMMARY_WIDTH_IN = 5.0
+_PDF_SUMMARY_PADDING_IN = 0.25
+_PDF_COADD_SIZE_IN = 3.25
+_PDF_SKY_WIDTH_IN = 5.0
+_PDF_LIGHT_CURVE_WIDTH_IN = 5.0
 
 
 def band_slug(band):
@@ -185,12 +191,20 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir, pdf_path
 
 
 def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
-    """Writes a one-page, pre-rendered ``report.pdf`` in ``out_dir``: title across the top,
-    the summary stats on the left (``_PDF_SUMMARY_WIDTH_IN`` wide), the sky plot above the
-    light curve on the right (``_PDF_PLOT_COLUMN_WIDTH_IN`` wide, each
-    ``_PDF_SKY_HEIGHT_IN``/``_PDF_LIGHT_CURVE_HEIGHT_IN`` tall), and the coadd to the right of
-    those, vertically centered. Needs ``sky``/``coadd``/``light_curve`` in
-    ``summary.artifacts``; returns ``None`` if any are missing (e.g. no cutouts survived)."""
+    """Writes a one-page, pre-rendered ``<run_id>-result-<result_num>.pdf`` in ``out_dir``: an
+    11in x 8.5in page with a 0.5in margin, a 1in title band (centered) across the top, the
+    summary stats top-left (``_PDF_SUMMARY_WIDTH_IN`` x ``_PDF_ROW_HEIGHT_IN``, with
+    ``_PDF_SUMMARY_PADDING_IN`` of padding), the coadd top-right (``_PDF_COADD_SIZE_IN``
+    square), the sky plot bottom-left and the light curve bottom-right (both
+    ``_PDF_SKY_WIDTH_IN``/``_PDF_LIGHT_CURVE_WIDTH_IN`` wide x ``_PDF_ROW_HEIGHT_IN`` tall).
+
+    The sky/coadd/light curve plots are drawn directly onto this page's own axes (sharing
+    ``summary``'s already-computed measurements/cutouts and the ``sky_plot_data``
+    ``visualize_result()`` stashes on it) rather than embedding the already-rendered
+    ``summary.artifacts`` images -- vector output, not a rasterized copy of them, however
+    those were rendered (``png`` or ``pdf``). Needs ``sky``/``coadd``/``light_curve`` in
+    ``summary.artifacts`` (so there's something to draw); returns ``None`` if any are missing
+    (e.g. no cutouts survived)."""
     needed = ("sky", "coadd", "light_curve")
     if not all(kind in summary.artifacts for kind in needed):
         return None
@@ -199,46 +213,45 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    content_height_in = _PDF_HEIGHT_IN - _PDF_TITLE_HEIGHT_IN
+    out_dir = Path(out_dir)
 
     def axes_in(x_in, y_from_top_in, w_in, h_in):
-        """An Axes placed by its box in inches, measured from the page's top-left."""
-        left = x_in / _PDF_WIDTH_IN
-        bottom = (_PDF_HEIGHT_IN - y_from_top_in - h_in) / _PDF_HEIGHT_IN
-        return fig.add_axes([left, bottom, w_in / _PDF_WIDTH_IN, h_in / _PDF_HEIGHT_IN])
+        """An Axes placed by its box in inches, measured from the content area's top-left
+        (i.e. already inset by ``_PDF_MARGIN_IN`` from the page edge)."""
+        left = (_PDF_MARGIN_IN + x_in) / _PDF_PAGE_WIDTH_IN
+        bottom = (_PDF_PAGE_HEIGHT_IN - _PDF_MARGIN_IN - y_from_top_in - h_in) / _PDF_PAGE_HEIGHT_IN
+        return fig.add_axes([left, bottom, w_in / _PDF_PAGE_WIDTH_IN, h_in / _PDF_PAGE_HEIGHT_IN])
 
-    fig = plt.figure(figsize=(_PDF_WIDTH_IN, _PDF_HEIGHT_IN))
+    fig = plt.figure(figsize=(_PDF_PAGE_WIDTH_IN, _PDF_PAGE_HEIGHT_IN))
 
-    title_ax = axes_in(0, 0, _PDF_WIDTH_IN, _PDF_TITLE_HEIGHT_IN)
+    title_ax = axes_in(0, 0, _PDF_CONTENT_WIDTH_IN, _PDF_TITLE_HEIGHT_IN)
     title_ax.axis("off")
-    title_ax.text(0.0, 0.5, f"{run_id} result {result_num}", fontsize=16, va="center", ha="left",
+    title_ax.text(0.5, 0.5, f"{run_id} result {result_num}", fontsize=18, va="center", ha="center",
                   transform=title_ax.transAxes)
 
-    summary_ax = axes_in(0, _PDF_TITLE_HEIGHT_IN, _PDF_SUMMARY_WIDTH_IN, content_height_in)
+    pad = _PDF_SUMMARY_PADDING_IN
+    summary_ax = axes_in(pad, _PDF_TITLE_HEIGHT_IN + pad, _PDF_SUMMARY_WIDTH_IN - 2 * pad,
+                         _PDF_ROW_HEIGHT_IN - 2 * pad)
     summary_ax.axis("off")
     rows = _stats_rows(sd, result_num, summary, stats)
     text = "\n".join(f"{k}:  {v}" for k, v in rows)
     summary_ax.text(0.0, 1.0, text, fontsize=9, va="top", ha="left", linespacing=1.8,
                     transform=summary_ax.transAxes)
 
-    sky_ax = axes_in(_PDF_SUMMARY_WIDTH_IN, _PDF_TITLE_HEIGHT_IN, _PDF_PLOT_COLUMN_WIDTH_IN, _PDF_SKY_HEIGHT_IN)
-    sky_ax.imshow(plt.imread(summary.artifacts["sky"]), aspect="auto")
-    sky_ax.axis("off")
+    coadd_ax = axes_in(_PDF_CONTENT_WIDTH_IN - _PDF_COADD_SIZE_IN, _PDF_TITLE_HEIGHT_IN, _PDF_COADD_SIZE_IN,
+                       _PDF_COADD_SIZE_IN)
+    render_coadd_plot(summary, out_dir, ax=coadd_ax)  # turns its own axis off (an image, no ticks)
 
-    light_curve_ax = axes_in(_PDF_SUMMARY_WIDTH_IN, _PDF_TITLE_HEIGHT_IN + _PDF_SKY_HEIGHT_IN,
-                             _PDF_PLOT_COLUMN_WIDTH_IN, _PDF_LIGHT_CURVE_HEIGHT_IN)
-    light_curve_ax.imshow(plt.imread(summary.artifacts["light_curve"]), aspect="auto")
-    light_curve_ax.axis("off")
+    bottom_row_y = _PDF_TITLE_HEIGHT_IN + _PDF_ROW_HEIGHT_IN
+    sky_ax = axes_in(0, bottom_row_y, _PDF_SKY_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
+    tracklet, gathered, exposure_times = summary.sky_plot_data
+    render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=sky_ax)
 
-    coadd_y_from_top = _PDF_TITLE_HEIGHT_IN + (content_height_in - _PDF_COADD_HEIGHT_IN) / 2
-    coadd_ax = axes_in(_PDF_SUMMARY_WIDTH_IN + _PDF_PLOT_COLUMN_WIDTH_IN, coadd_y_from_top,
-                       _PDF_COADD_WIDTH_IN, _PDF_COADD_HEIGHT_IN)
-    coadd_ax.imshow(plt.imread(summary.artifacts["coadd"]), aspect="auto")
-    coadd_ax.axis("off")
+    light_curve_ax = axes_in(_PDF_SKY_WIDTH_IN, bottom_row_y, _PDF_LIGHT_CURVE_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
+    render_light_curve_plot(summary, out_dir, ax=light_curve_ax)
 
-    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / _PDF_FILENAME
+    path = out_dir / f"{run_id}-result-{result_num}.pdf"
     fig.savefig(path)
     plt.close(fig)
     return path

@@ -138,12 +138,16 @@ def measure_result(session, engine, sd, tracklet, exposures, product_type=DEFAUL
     return summary
 
 
-def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir):
-    """``sky.png``: the result's gathered (observed) detections colored by
-    time, with its tracklet's predicted track as an arrow over the
-    searched time span and an x at the predicted position in every
-    exposure (salad's sky plot, ``salad/viz.py::render_sky_plot``).
-    Returns the path, or ``None`` if there's nothing gathered to plot."""
+def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=None, fmt="png"):
+    """The result's gathered (observed) detections colored by time, with
+    its tracklet's predicted track as an arrow over the searched time
+    span and an x at the predicted position in every exposure (salad's
+    sky plot, ``salad/viz.py::render_sky_plot``). By default creates and
+    saves its own figure (``sky.<fmt>``), returning its path -- or
+    ``None`` if there's nothing gathered to plot, or (with ``ax`` given)
+    nothing was drawn. With ``ax`` given, draws directly onto it instead
+    (the caller owns saving) and always returns ``None`` -- see
+    ``viz/tracklet.py``'s ``render_light_curve_plot()``."""
     if not gathered:
         return None
 
@@ -153,11 +157,13 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     import numpy as np
     from matplotlib.patches import FancyArrowPatch
 
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(14, 6), dpi=110)
     ra, dec, time = (np.array(c) for c in zip(*gathered))
     t0 = float(time.min())
-    fig, ax = plt.subplots(figsize=(14, 6), dpi=110)
     sc = ax.scatter(ra, dec, c=time - t0, cmap="viridis", label="observed (gathered)", zorder=2)
-    fig.colorbar(sc, ax=ax).set_label(f"time since {t0:.5f} MJD TAI (day)")
+    ax.figure.colorbar(sc, ax=ax).set_label(f"time since {t0:.5f} MJD TAI (day)")
 
     tmin, tmax = min([*exposure_times, time.min()]), max([*exposure_times, time.max()])
     (ra0, dec0), (ra1, dec1) = predict(tracklet, tmin), predict(tracklet, tmax)
@@ -177,20 +183,27 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     ax.set_title(f"{run_id} #{result_num}: sky")
     ax.legend(loc="best")
 
+    if fig is None:
+        return None
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "sky.png"
+    path = out_dir / f"sky.{fmt}"
     fig.savefig(path)
     plt.close(fig)
     return path
 
 
 def visualize_result(session, engine, run_id, result_num, out_dir, product_type=DEFAULT_PRODUCT_TYPE,
-                     cutout_size=DEFAULT_CUTOUT_SIZE, annotate=None):
+                     cutout_size=DEFAULT_CUTOUT_SIZE, annotate=None, plot_format="png"):
     """Measure + render everything for one find-asteroids result:
-    ``light_curve.png``/``coadd.png``/``movie.gif``/``sky.png`` under
-    ``out_dir``. Cutouts are written to a temporary directory and
-    discarded -- only those four images are kept. Returns the filled-in
-    ``VizSummary``, or ``None`` if ``run_id``/``result_num`` doesn't exist
+    ``light_curve.<plot_format>``/``coadd.<plot_format>``/``movie.gif``/
+    ``sky.<plot_format>`` under ``out_dir`` (``plot_format`` e.g.
+    ``"png"`` (default) or ``"pdf"`` for vector output; the movie is
+    always a gif). Cutouts are written to a temporary directory and
+    discarded -- only those four files are kept. Returns the filled-in
+    ``VizSummary`` (with a ``sky_plot_data`` attribute --
+    ``(tracklet, gathered, exposure_times)`` -- stashed on it so a
+    combined report can redraw the sky plot in vector form without
+    re-measuring), or ``None`` if ``run_id``/``result_num`` doesn't exist
     (run `ingest searches`/`ingest images`/`search run` first)."""
     from pathlib import Path
 
@@ -206,11 +219,13 @@ def visualize_result(session, engine, run_id, result_num, out_dir, product_type=
                                  cutout_dir=cutout_dir, cutout_size=cutout_size)
         exposure_times = [float(utc_to_tai(e.midpoint_mjd)) for e in exposures]
         for kind, path in (
-            ("light_curve", render_light_curve_plot(summary, out_dir)),
-            ("coadd", render_coadd_plot(summary, out_dir)),
+            ("light_curve", render_light_curve_plot(summary, out_dir, fmt=plot_format)),
+            ("coadd", render_coadd_plot(summary, out_dir, fmt=plot_format)),
             ("movie", render_movie(summary, out_dir, annotate=annotate)),
-            ("sky", render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir)),
+            ("sky", render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir,
+                                    fmt=plot_format)),
         ):
             if path is not None:
                 summary.artifacts[kind] = str(path)
+    summary.sky_plot_data = (tracklet, gathered, exposure_times)
     return summary

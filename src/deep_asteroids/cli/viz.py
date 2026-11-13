@@ -121,12 +121,14 @@ def linked(ctx, night, out_dir, min_members, linked_ids, limit, sheets):
               help="Default: ./viz/result/<run_id>/<result_num>/")
 @click.option("--product-type", default="differenceExp", show_default=True)
 @click.option("--cutout-size", type=int, default=51, show_default=True)
+@click.option("--plot-format", type=click.Choice(["png", "pdf"]), default="png", show_default=True,
+              help="Format for the light curve/coadd/sky plots (vector with pdf); the movie is always a gif")
 @click.option("--annotate", type=str, default=None,
               help="A str.format() template (e.g. '{night}/{field}/{expnum}') drawn in white at the top of "
                    "each movie frame, shrunk/truncated to fit the frame width. Fields: night, field, expnum, "
                    "mjd_tai, ra, dec, mag.")
 @click.pass_context
-def result(ctx, run_id, result_num, out_dir, product_type, cutout_size, annotate):
+def result(ctx, run_id, result_num, out_dir, product_type, cutout_size, plot_format, annotate):
     """Cutouts + forced photometry + light curve + coadd + movie + sky plot for one
     ingested find-asteroids result, at its own tracklet's predicted position in every
     exposure of its search that the tracklet's fit spans.
@@ -147,7 +149,7 @@ def result(ctx, run_id, result_num, out_dir, product_type, cutout_size, annotate
     out_dir = Path(out_dir) if out_dir else Path("viz") / "result" / run_id / str(result_num)
     with Session(get_db()) as session:
         summary = visualize_result(session, engine, run_id, result_num, out_dir, product_type=product_type,
-                                   cutout_size=cutout_size, annotate=annotate)
+                                   cutout_size=cutout_size, annotate=annotate, plot_format=plot_format)
     if summary is None:
         raise click.ClickException(f"no result {result_num} for run_id {run_id} (run `ingest results` first?)")
     click.echo(summary.format())

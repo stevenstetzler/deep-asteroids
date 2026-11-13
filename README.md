@@ -604,17 +604,18 @@ registry/repo -- see `examples/README.md`.
 
 ```bash
 deep-asteroids viz result --run-id R --result-num N [--out-dir DIR] [--product-type differenceExp] \
-    [--cutout-size 51] [--annotate TEMPLATE]
+    [--cutout-size 51] [--plot-format png|pdf] [--annotate TEMPLATE]
 ```
 
 The result analog of `viz tracklet` (#27): cutouts + forced photometry + light curve + coadd +
 movie, at one ingested find-asteroids result's own tracklet's predicted position, for every
 exposure of its search definition that the tracklet's fit (`tmin`/`tmax`) spans -- plus
-`sky.png`, the result's gathered (observed) detections colored by time against the tracklet's
+a sky plot, the result's gathered (observed) detections colored by time against the tracklet's
 predicted track (salad's sky plot). Unlike `viz tracklet`, cutouts are written to a temporary
 directory and discarded once rendered: only the four plots are kept in `--out-dir` (default
 `./viz/result/<run_id>/<result_num>/`). `--annotate` is the same `str.format()` template as
-`viz tracklet`'s.
+`viz tracklet`'s. `--plot-format pdf` writes the light curve/coadd/sky plots as vector PDFs
+instead of PNGs (the movie is always a gif -- there's no vector equivalent of an animation).
 
 Needs `ingest searches`, `ingest images` and the run's results already ingested (`search run`),
 and the vendored cutout engine built (above). Promoted from the one-off
@@ -651,13 +652,17 @@ aspect ratio. Selects search definitions the same way `search run` does; every o
 results is packaged unless `--result-num` narrows it. A page that already exists is left alone
 (the cache) unless `--force`.
 
-A "Download PDF" button (top right) links to a pre-rendered, one-page `report.pdf` written
-alongside `index.html` (`render_result_pdf()`, matplotlib's own PDF backend -- no extra PDF
-software needed): a fixed 10in x 7.5in layout with the title across the top, the summary stats
-on the left (2.5in wide, full content height), the sky plot above the light curve on the right
-(5in wide, 3.5in each), and the coadd to the right of those (2.5in x 2.5in), vertically centered.
-Skipped (the page gets no button) if any of sky/coadd/light curve didn't render, e.g. no cutouts
-survived.
+A "Download PDF" button (top right) links to a pre-rendered, one-page
+`<run_id>-result-<result_num>.pdf` written alongside `index.html` (`render_result_pdf()`,
+matplotlib's own PDF backend -- no extra PDF software needed): an 11in x 8.5in page with a
+0.5in margin on every side (a 10in x 7.5in content area), a 1in title band (centered) across
+the top, the summary stats top-left (5in x 3.25in, with 0.25in padding) and the coadd top-right
+(3.25in square), then the sky plot bottom-left and the light curve bottom-right (both 5in wide
+x 3.25in tall). The sky/coadd/light curve plots are drawn directly onto the report's own axes
+from the same measurements/cutouts `viz result` already computed (not a rasterized copy of the
+page's own PNGs) -- genuinely vector output, so it stays crisp at any zoom, without needing an
+extra PDF-manipulation dependency. Skipped (the page gets no button) if any of sky/coadd/light
+curve didn't render, e.g. no cutouts survived.
 
 Not done here (follow-up #27 work): the index pages above the leaf (listing nights, fields, CCDs,
 bands, and the coverage/search-tracking pages from #26) -- this lays down the leaf page and its

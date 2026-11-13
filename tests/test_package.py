@@ -53,9 +53,9 @@ def test_package_result_renders_and_caches(session, definition, result_num, tmp_
     for img in ("light_curve.png", "coadd.png", "movie.gif", "sky.png"):
         assert img in page and (path.parent / img).exists()
 
-    pdf = path.parent / "report.pdf"
+    pdf = path.parent / f"{h.RUN_ID}-result-{result_num}.pdf"
     assert pdf.exists() and pdf.stat().st_size > 0
-    assert 'href="report.pdf"' in page and "Download PDF" in page
+    assert f'href="{pdf.name}"' in page and "Download PDF" in page
 
     again_skipped, again_path = package_result(session, h.FakeCutoutEngine(), definition, result_num, tmp_path)
     assert again_skipped and again_path == path
@@ -71,7 +71,7 @@ def test_render_result_pdf_needs_sky_coadd_light_curve(session, definition, resu
     out_dir = tmp_path / "out"
     summary = visualize_result(session, h.FakeCutoutEngine(), h.RUN_ID, result_num, out_dir)
     pdf_path = render_result_pdf(definition, h.RUN_ID, result_num, summary, None, out_dir)
-    assert pdf_path is not None and pdf_path.name == "report.pdf" and pdf_path.exists()
+    assert pdf_path is not None and pdf_path.name == f"{h.RUN_ID}-result-{result_num}.pdf" and pdf_path.exists()
 
     summary.artifacts.pop("coadd")
     assert render_result_pdf(definition, h.RUN_ID, result_num, summary, None, out_dir) is None
