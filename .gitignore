@@ -227,17 +227,13 @@ agent/
 src/deep_asteroids/_version.py
 
 # `deep-asteroids package`'s static site (#27): regenerated on demand, not committed --
-# except the one example result below, kept so the layout/pages can be reviewed without
-# rerunning the real pipeline. Each level needs its own un-ignore for git to recurse into it.
+# except every index.html (cheap, built from the database, and the whole point is to see
+# the nested structure) and the one example result's images/PDF below, kept so its page can
+# be reviewed without rerunning the real pipeline.
 /web/*
+!/web/index.html
 !/web/results/
-/web/results/*
-!/web/results/20190402/
-/web/results/20190402/*
-!/web/results/20190402/A0b/
-/web/results/20190402/A0b/*
-!/web/results/20190402/A0b/ccd41/
-/web/results/20190402/A0b/ccd41/*
-!/web/results/20190402/A0b/ccd41/VR/
-/web/results/20190402/A0b/ccd41/VR/*
-!/web/results/20190402/A0b/ccd41/VR/24/
+/web/results/**
+!/web/results/**/
+!/web/results/**/index.html
+!/web/results/20190402/A0b/ccd41/VR/24/*
