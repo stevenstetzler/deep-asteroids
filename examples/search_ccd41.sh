@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Reruns one find-asteroids search and compares it with salad's earlier run
-# (issue #16): band VR, night 20190402, field A0b, detector 42 -- 103
-# exposures, 50 results. Override any of NIGHT/FIELD/DETECTOR/BAND to try
-# another search that salad also ran:
+# (issue #16): band VR, night 20190402, field A0b, detector 41 -- the CCD
+# whose result 24 is the example in result_ccd41_24.sh. Override any of
+# NIGHT/FIELD/DETECTOR/BAND to try another search that salad also ran:
 #
-#   NIGHT=20190403 FIELD=A0c DETECTOR=10 ./search_ccd42.sh
+#   NIGHT=20190403 FIELD=A0c DETECTOR=10 ./search_ccd41.sh
 #
 # The previous run is copied from $RESULTS_DB (default salad's Postgres on
 # localhost:55432 -- start it first) under its own run_id
@@ -33,7 +33,7 @@ source ./common.sh
 
 : "${NIGHT:=20190402}"
 : "${FIELD:=A0b}"
-: "${DETECTOR:=42}"
+: "${DETECTOR:=41}"
 : "${BAND:=VR}"
 : "${RESULTS_DB:=postgresql://${USER}@localhost:55432/salad}"
 : "${CATALOG_DIR:=/gscratch/scrubbed/${USER}/deep_asteroids/catalogs}"

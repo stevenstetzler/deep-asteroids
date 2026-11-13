@@ -270,24 +270,30 @@ inside a Slurm job). Parallelism is sized from the Slurm allocation, never
 
 ### Reproducing salad's run
 
-`examples/search_ccd42.sh` reruns band VR, night 20190402, field A0b,
-detector 42 and compares it with salad's earlier run
-(`docs/examples/search/`), level by level:
+`examples/search_ccd41.sh` reruns band VR, night 20190402, field A0b,
+detector 41 (103 exposures, 50 results) and compares it with salad's earlier
+run (report in `docs/examples/search/`), level by level:
 
 | level | result |
 |---|---|
-| L0 detector | all 3,682 distinct points salad's search gathered are found in the new catalog **exactly** (0" apart, identical flux and mag); the time labels agree to 0.04 ms |
+| L0 detector | all 7,065 distinct points salad's search gathered are found in the new catalog **exactly** (0" apart, identical flux and mag); the time labels agree to 0.04 ms |
 | L1 Hough | `(x, y, direction, n)` identical for all 50 results, in the same order |
-| L2 refinement | 12/50 results' tracklets differ by more than 0.05" somewhere in the span (max 20"); rerunning with seed 1 or 2 differs from seed 0 in 10-13/50 (max 24"), the same size |
-| L3 outputs | the Hough-stage `points` sets are identical for all 50; the `gathered` sets are identical for 42/50 (median Jaccard 1.0) |
+| L2 refinement | 19/50 results' tracklets differ by more than 0.05" somewhere in the span (max 2.0"); rerunning with seed 1 or 2 differs from seed 0 in 16-17/50 (max 1.2"), the same size |
+| L3 outputs | the Hough-stage `points` sets are identical for all 50; the `gathered` sets are identical for 32/50 (min Jaccard 0.96, median 1.0) |
 
 So everything but the unseeded refinement is reproduced exactly, and the
-differences that remain are the refinement's own seed-to-seed noise.
+differences that remain are the refinement's own seed-to-seed noise. Result 24
+(the example in `result_ccd41_24.sh`) is identical in all of these: same
+Hough cluster, same counts, the same 110 `gathered` points and 105 `points`,
+and a tracklet agreeing to 1e-11 deg/day. Its regenerated figures match the
+ones made from salad's database: the movie is byte-identical, and the three
+plots differ only in their title (the run id now ends in `-VR`) and 16
+anti-aliased pixels along the track in `sky.png`.
 
-Measured cost of that one CCD on 4 CPUs / 8 GB: 103 images detected in 74 s
-(about 2.9 CPU-seconds per image), 9 s for the search, 3 s to ingest, 90 s
-wall in all, 557 MB peak memory (salad's recorded means: 3.3 s per image and
-21 s per search).
+Measured cost of one CCD on 4 CPUs / 8 GB: detecting its 103 images took 23 s
+with the images in the file cache and 74 s cold (about 2.9 CPU-seconds per
+image cold), the search 10 s, the ingest 3 s, and the peak memory was 557 MB
+(salad's recorded means: 3.3 s per image and 21 s per search).
 
 ## Cutouts and forced photometry
 

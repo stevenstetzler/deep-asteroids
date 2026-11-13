@@ -18,8 +18,8 @@ gathered (observed) detections colored by time, with its tracklet's predicted
 track as an arrow over the searched time span and an x at the predicted
 position in every exposure.
 
-Needs ``ingest searches``, ``ingest images`` and ``ingest results`` already
-done (``result_ccd41_24.sh`` does all of them). Only the four images are
+Needs ``ingest searches``, ``ingest images`` and the run's results already
+in the database (``result_ccd41_24.sh`` ingests the first two and runs the search). Only the four images are
 kept in OUT_DIR; the per-exposure cutouts go to a temporary directory.
 """
 import argparse
