@@ -44,17 +44,17 @@ def seeded(session):
 
 def test_nights_rows(session, seeded):
     rows = nights_rows(session)
-    assert rows == [(NIGHT_1, 1, 2, 2), (NIGHT_2, 1, 1, 1)]
+    assert rows == [(NIGHT_1, 1, 2, 1, 2), (NIGHT_2, 1, 1, 1, 1)]
 
 
 def test_fields_rows(session, seeded):
-    assert fields_rows(session, NIGHT_1) == [("A0b", 2, 2, 2)]
-    assert fields_rows(session, NIGHT_2) == [("A0c", 1, 1, 1)]
+    assert fields_rows(session, NIGHT_1) == [("A0b", 2, 2, 1, 2)]
+    assert fields_rows(session, NIGHT_2) == [("A0c", 1, 1, 1, 1)]
 
 
 def test_detectors_rows(session, seeded):
     rows = detectors_rows(session, NIGHT_1, "A0b")
-    assert rows == [(1, "D1", 1, 2), (2, "D2", 1, 0)]
+    assert rows == [(1, "D1", 1, 1, 2), (2, "D2", 1, 0, 0)]
 
 
 def test_bands_rows_sorted_and_searched_flag(session, seeded):
@@ -78,6 +78,7 @@ def test_build_site_index_writes_every_level_and_links_resolve(session, seeded, 
 
     root = (web_dir / "index.html").read_text()
     assert f'href="results/{NIGHT_1}/index.html"' in root and f'href="results/{NIGHT_2}/index.html"' in root
+    assert "searches defined" in root and "searches executed" in root
 
     night_page = (web_dir / "results" / str(NIGHT_1) / "index.html").read_text()
     assert 'href="A0b/index.html"' in night_page and '<a href="../../index.html">' in night_page

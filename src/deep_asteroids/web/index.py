@@ -25,31 +25,34 @@ from deep_asteroids.web.site import band_slug
 
 
 def nights_rows(session):
-    """``[(night, n_fields, n_definitions, n_results), ...]``, by night."""
+    """``[(night, n_fields, n_definitions, n_searched, n_results), ...]``, by night.
+    ``n_searched`` counts distinct `search_definition`s with a find-asteroids `search` row
+    (see ``bands_rows()``'s own docstring on why that, not `search_run`)."""
     return session.execute(
         select(SD.night, func.count(func.distinct(SD.field)), func.count(func.distinct(SD.id)),
-               func.count(Result.id))
+               func.count(func.distinct(Search.id)), func.count(Result.id))
         .select_from(SD).outerjoin(Search, Search.run_id == SD.run_id).outerjoin(Result, Result.search_id == Search.id)
         .group_by(SD.night).order_by(SD.night)
     ).all()
 
 
 def fields_rows(session, night):
-    """``[(field, n_detectors, n_definitions, n_results), ...]`` for one night, by field."""
+    """``[(field, n_detectors, n_definitions, n_searched, n_results), ...]`` for one night,
+    by field."""
     return session.execute(
         select(SD.field, func.count(func.distinct(SD.detector_number)), func.count(func.distinct(SD.id)),
-               func.count(Result.id))
+               func.count(func.distinct(Search.id)), func.count(Result.id))
         .select_from(SD).outerjoin(Search, Search.run_id == SD.run_id).outerjoin(Result, Result.search_id == Search.id)
         .where(SD.night == night).group_by(SD.field).order_by(SD.field)
     ).all()
 
 
 def detectors_rows(session, night, field):
-    """``[(detector_number, detector_name, n_definitions, n_results), ...]`` for one
-    (night, field), by detector_number."""
+    """``[(detector_number, detector_name, n_definitions, n_searched, n_results), ...]``
+    for one (night, field), by detector_number."""
     return session.execute(
         select(SD.detector_number, func.min(SD.detector_name), func.count(func.distinct(SD.id)),
-               func.count(Result.id))
+               func.count(func.distinct(Search.id)), func.count(Result.id))
         .select_from(SD).outerjoin(Search, Search.run_id == SD.run_id).outerjoin(Result, Result.search_id == Search.id)
         .where(SD.night == night, SD.field == field)
         .group_by(SD.detector_number).order_by(SD.detector_number)
@@ -148,27 +151,28 @@ def build_site_index(session, web_dir):
     night_rows = nights_rows(session)
     paths.append(_render_table_page(
         web_dir / "index.html", "deep-asteroids: nights", None,
-        ["night", "fields", "searches", "results"],
-        [((night, f"results/{night}/index.html"), n_fields, n_defs, n_results)
-         for night, n_fields, n_defs, n_results in night_rows],
+        ["night", "fields", "searches defined", "searches executed", "results"],
+        [((night, f"results/{night}/index.html"), n_fields, n_defs, n_searched, n_results)
+         for night, n_fields, n_defs, n_searched, n_results in night_rows],
         "No nights ingested yet (run `ingest searches` first)."))
 
     for night, *_ in night_rows:
         field_rows = fields_rows(session, night)
         paths.append(_render_table_page(
             web_dir / "results" / str(night) / "index.html", f"{night}: fields", "../../index.html",
-            ["field", "detectors", "searches", "results"],
-            [((field, f"{field}/index.html"), n_detectors, n_defs, n_results)
-             for field, n_detectors, n_defs, n_results in field_rows],
+            ["field", "detectors", "searches defined", "searches executed", "results"],
+            [((field, f"{field}/index.html"), n_detectors, n_defs, n_searched, n_results)
+             for field, n_detectors, n_defs, n_searched, n_results in field_rows],
             "No fields ingested yet."))
 
         for field, *_ in field_rows:
             detector_rows = detectors_rows(session, night, field)
             paths.append(_render_table_page(
                 web_dir / "results" / str(night) / field / "index.html", f"{night}/{field}: CCDs",
-                "../index.html", ["detector", "detector_name", "searches", "results"],
-                [((f"ccd{detector_number}", f"ccd{detector_number}/index.html"), detector_name, n_defs, n_results)
-                 for detector_number, detector_name, n_defs, n_results in detector_rows],
+                "../index.html", ["detector", "detector_name", "searches defined", "searches executed", "results"],
+                [((f"ccd{detector_number}", f"ccd{detector_number}/index.html"), detector_name, n_defs, n_searched,
+                  n_results)
+                 for detector_number, detector_name, n_defs, n_searched, n_results in detector_rows],
                 "No CCDs ingested yet."))
 
             for detector_number, *_ in detector_rows:

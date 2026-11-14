@@ -687,13 +687,20 @@ web/results/<night>/<field>/ccd<detector_number>/<band>/index.html  results, for
 
 Every level's rows come pre-sorted by a sensible default (numeric night/detector_number,
 lexical field/band, numeric result_num -- find-asteroids' own ranking, best first), with an
-aggregate count or two (fields/CCDs/searches/results below that row) and an "up" link back to
-the parent. Each of these is one cheap aggregate query, so `package index` always rewrites
-every page rather than caching/skipping them the way `package result` does its (expensive)
-ones. The results table links to `<result_num>/index.html` whether or not `package result` has
-actually rendered that page yet -- the link just won't resolve until it has, same as the
-coverage/search-tracking page from #26 isn't connected into this site yet (still open, along
-with picking out which results are worth surfacing once a search has more than a handful).
+"up" link back to the parent and, at the nights/fields/CCDs levels, both **searches defined**
+(`search_definition` rows below that row -- every `(night, field, detector_number, band)`
+triple `ingest searches` knows about, whether or not it's actually been searched) and
+**searches executed** (how many of those have a find-asteroids `search` row -- not
+`search_run`: most of this database's real results were copied in via `ingest results
+--results-db`, with no `search_run` row of their own), plus a results count. The bands/searches
+page below that already shows this per-row (`searched`: yes/no) rather than aggregated, since
+each of its rows already is one search. Each of these pages is one cheap aggregate query, so
+`package index` always rewrites every page rather than caching/skipping them the way `package
+result` does its (expensive) ones. The results table links to `<result_num>/index.html`
+whether or not `package result` has actually rendered that page yet -- the link just won't
+resolve until it has, same as the coverage/search-tracking page from #26 isn't connected into
+this site yet (still open, along with picking out which results are worth surfacing once a
+search has more than a handful).
 
 `examples/package_ccd41_24.sh` reproduces the one page committed under `web/`
 (`web/results/20190402/A0b/ccd41/VR/24/`) end to end against the real registry/repo, the same
