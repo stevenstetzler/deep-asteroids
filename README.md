@@ -703,14 +703,32 @@ aggregate query, so
 `package index` always rewrites every page rather than caching/skipping them the way `package
 result` does its (expensive) ones. The results table links to `<result_num>/index.html`
 whether or not `package result` has actually rendered that page yet -- the link just won't
-resolve until it has, same as the coverage/search-tracking page from #26 isn't connected into
-this site yet (still open, along with picking out which results are worth surfacing once a
-search has more than a handful).
+resolve until it has (picking out which results are worth surfacing once a search has more
+than a handful is still open).
 
 `examples/package_ccd41_24.sh` reproduces the one page committed under `web/`
 (`web/results/20190402/A0b/ccd41/VR/24/`) end to end against the real registry/repo, the same
 way `examples/result_ccd41_24.sh` reproduces its `viz result` counterpart -- see
 `examples/README.md`.
+
+### Search coverage, flat across the whole survey
+
+```
+web/search/index.html  every search_definition, one row each, by n_exposures descending
+```
+
+#26's own coverage/search-tracking (`query coverage`) wasn't connected into the site before
+(#28): `package index` now also writes this one extra page, linked from the nights index
+(`web/index.html`). Unlike the nights -> fields -> CCDs -> bands drill-down above, it's flat --
+every `(night, field, detector_number, band)` `search_definition` in the database as its own
+row, `(night, field, detector)` linking down into the bands/searches page above, plus `band`,
+`n_exposures`, `n_images` (ingested, `--product-type differenceExp`), `searched` (same
+find-asteroids-`search`-row check `bands_rows()` uses) and its result count -- sorted by
+`n_exposures` descending (then night/field/detector/band) so the most substantial searches,
+done or not, sort to the top. Meant as the "what exists and what's run" overview the drill-down doesn't give in one glance;
+`search_coverage_rows()` (`web/index.py`) computes the same shape of row `query coverage`
+already prints as text (same `searched` definition, same joins), for the web page instead of a
+terminal.
 
 ## Known-object tracklets
 
