@@ -733,6 +733,29 @@ search has more than a handful).
 way `examples/result_ccd41_24.sh` reproduces its `viz result` counterpart -- see
 `examples/README.md`.
 
+### Merged PDFs by group
+
+```bash
+deep-asteroids package merge-pdfs [--night N ...] [--group {mpchecker,synthetic,putative-new} ...] \
+    [--web-dir web] [--out-dir web/pdfs] [--sigma-v-threshold 0.00015] [--authoritative-only/--all-results] \
+    [--force]
+```
+
+Merges already-rendered per-result PDFs into one PDF per `(night, group)`, under
+`<out-dir>/<night>/<group>.pdf` -- the three groups `docs/results/magnitudes.png` highlights:
+**mpchecker** (matches a mpchecker ephemeris -- the `KNOWN` group), **synthetic** (matches a
+synthetic/fake object), and **putative-new** (unmatched and passes the putative-real cut -- a
+candidate no known object explains). Kept one merged PDF per night, not one per group across
+the whole survey, to keep file sizes manageable. `--sigma-v-threshold` must match whatever
+`package result --putative-real` actually rendered, or the merge references PDFs that were
+never written (counted and skipped, not an error: see `n_missing_pdf` in the summary line). A
+`(night, group)` with no matching, rendered result is skipped too -- no empty file. Like
+`package result`, caches by output-file existence (`--force` to redo). Needs `statistics`/
+`crossmatch`/`dedup` already run and the individual PDFs this merges already on disk; unlike
+rendering them, merging is cheap (no subprocess engine, just concatenating small PDFs), so this
+runs fine on a login node -- no Slurm job needed. `results/merge_pdfs.sh` wraps it for the
+full-survey database; see `results/README.md`.
+
 ## Known-object tracklets
 
 ```bash

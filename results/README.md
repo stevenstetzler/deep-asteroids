@@ -1,10 +1,11 @@
 # Results
 
 Scripts that run against the full-survey database, not one validation night
-or a handful of known objects (that's what `examples/` demos). Two things
+or a handful of known objects (that's what `examples/` demos). Three things
 live here: `full_survey_summary.sh` (#15), which builds that database and
-its funnel/summary plots, and `package_backfill_putative_real.sh` (#32/#33),
-which renders PDFs from it.
+its funnel/summary plots; `package_backfill_putative_real.sh` (#32/#33),
+which renders PDFs from it; and `merge_pdfs.sh` (#32/#33), which merges
+those PDFs by group.
 
 ## Full-survey ingest and funnel (#15)
 
@@ -57,3 +58,22 @@ requeue, or resubmission only (re)does whatever didn't finish --
 `index.html` itself is written via a temp file + atomic rename, so a
 mid-render kill never leaves a truncated one behind that a later run
 would mistake for "done".
+
+## Merging PDFs by group (#32/#33)
+
+```bash
+cd results
+DEEP_ASTEROIDS_DB=sqlite:////gscratch/<group>/$USER/deep_asteroids_full_survey.sqlite \
+./merge_pdfs.sh
+```
+
+From a login node -- unlike the backfill, this is cheap (concatenating already-rendered PDFs,
+no subprocess engine), so no Slurm job is needed. Merges every night's rendered per-result PDFs
+into one PDF per `(night, group)` under `$WEB_DIR/pdfs/<night>/<group>.pdf` -- **mpchecker**,
+**synthetic**, and **putative-new**, the three groups `docs/results/magnitudes.png` highlights
+(see the main README's "Merged PDFs by group" section for what each means). Kept per-night
+rather than one giant PDF per group across the whole survey, to keep file sizes manageable.
+Extra arguments (e.g. `--night`, `--group`, `--force`) pass straight through to
+`deep-asteroids package merge-pdfs`; run it again after a backfill resumes or finishes more
+nights and it only (re)does `(night, group)` pairs that changed or weren't done yet (same
+cache-by-output-file-existence convention as `package result`).
