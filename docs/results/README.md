@@ -38,7 +38,11 @@ as a diagnostic; it is no longer the cut.
   the putative-real cut marked. Clearly bimodal: a tight peak below the
   cut for real moving objects (submitted, synthetic, known), a broad one
   above it for chance alignments (unmatched) -- the cleanest separation
-  of any feature tried (see salad's `docs/ANALYZE_RESULT_STATS.md`).
+  of any feature tried (see salad's `docs/ANALYZE_RESULT_STATS.md`). Drawn
+  at `sigma_v < 0.00015`, the stricter cut `results/package_backfill_putative_real.sh`
+  renders PDFs against (#32/#33) -- stricter than the funnel table above
+  (still `0.00025`, unchanged), so this plot's cut line sits left of
+  where it would at the funnel's own threshold.
 - **`residuals.png`** -- histogram of log10(median residual) by match
   group. A diagnostic, not the cut (see above) -- the two populations
   happen to separate at a similar point on this axis too, just less
