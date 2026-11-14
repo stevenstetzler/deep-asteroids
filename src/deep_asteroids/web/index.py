@@ -21,6 +21,7 @@ from find_asteroids.models import Result, Search, Tracklet
 from sqlalchemy import func, select
 
 from deep_asteroids.database.search import SearchDefinition as SD
+from deep_asteroids.database.search_run import SearchRun
 from deep_asteroids.web.site import band_slug
 
 
@@ -60,21 +61,29 @@ def detectors_rows(session, night, field):
 
 
 def bands_rows(session, night, field, detector_number):
-    """``[(band, run_id, n_exposures, searched, n_results), ...]`` for one
-    (night, field, detector_number) -- one row per `search_definition` -- by band (``None``,
-    the undefined-band union, sorts by its slug, "all"). ``searched`` is whether a
-    find-asteroids `search` row exists for this `run_id` (not `search_run`: most of this
-    database's results were copied in from another results database, with no `search_run`
-    row of their own -- see `ingest results`)."""
+    """``[(band, run_id, n_exposures, searched, n_results, vmin, vmax, angle_min, angle_max,
+    dx, snr), ...]`` for one (night, field, detector_number) -- one row per
+    `search_definition` -- by band (``None``, the undefined-band union, sorts by its slug,
+    "all"). ``searched`` is whether a find-asteroids `search` row exists for this `run_id`
+    (not `search_run`: most of this database's results were copied in from another results
+    database, with no `search_run` row of their own -- see `ingest results`). ``vmin``/
+    ``vmax``/``angle_min``/``angle_max``/``dx`` are that `search` row's own parameters
+    (``None`` if unsearched); ``snr`` is `search_run`'s own detection threshold (``None``
+    unless this run went through `search run` here, which is why it's usually blank too)."""
     rows = session.execute(
-        select(SD.band, SD.run_id, SD.n_exposures, Search.id, func.count(Result.id))
-        .select_from(SD).outerjoin(Search, Search.run_id == SD.run_id).outerjoin(Result, Result.search_id == Search.id)
+        select(SD.band, SD.run_id, SD.n_exposures, Search.id, func.count(Result.id),
+               func.min(Search.velocity_0), func.min(Search.velocity_1), func.min(Search.angle_0),
+               func.min(Search.angle_1), func.min(Search.dx), func.min(SearchRun.threshold))
+        .select_from(SD)
+        .outerjoin(Search, Search.run_id == SD.run_id)
+        .outerjoin(Result, Result.search_id == Search.id)
+        .outerjoin(SearchRun, SearchRun.run_id == SD.run_id)
         .where(SD.night == night, SD.field == field, SD.detector_number == detector_number)
         .group_by(SD.id)
     ).all()
     return sorted(
-        ((band, run_id, n_exposures, search_id is not None, n_results)
-         for band, run_id, n_exposures, search_id, n_results in rows),
+        ((band, run_id, n_exposures, search_id is not None, n_results, vmin, vmax, angle_min, angle_max, dx, snr)
+         for band, run_id, n_exposures, search_id, n_results, vmin, vmax, angle_min, angle_max, dx, snr in rows),
         key=lambda r: band_slug(r[0]),
     )
 
@@ -180,13 +189,19 @@ def build_site_index(session, web_dir):
                 ccd_dir = web_dir / "results" / str(night) / field / f"ccd{detector_number}"
                 paths.append(_render_table_page(
                     ccd_dir / "index.html", f"{night}/{field}/ccd{detector_number}: searches", "../index.html",
-                    ["band", "run_id", "n_exposures", "searched", "results"],
+                    ["band", "run_id", "n_exposures", "searched", "results", "engine", "vmin (deg/day)",
+                     "vmax (deg/day)", "angle_min (deg)", "angle_max (deg)", "dx (arcsec)", "snr"],
                     [((band if band else "(all)", f"{band_slug(band)}/index.html"), run_id, n_exposures,
-                      "yes" if searched else "no", n_results)
-                     for band, run_id, n_exposures, searched, n_results in band_rows],
+                      "yes" if searched else "no", n_results, "find-asteroids" if searched else "",
+                      f"{vmin:.3f}" if vmin is not None else "", f"{vmax:.3f}" if vmax is not None else "",
+                      f"{angle_min:.2f}" if angle_min is not None else "",
+                      f"{angle_max:.2f}" if angle_max is not None else "", f"{dx:.1f}" if dx is not None else "",
+                      f"{snr:.1f}" if snr is not None else "")
+                     for band, run_id, n_exposures, searched, n_results, vmin, vmax, angle_min, angle_max, dx, snr
+                     in band_rows],
                     "No searches ingested yet."))
 
-                for band, run_id, _n_exposures, _searched, _n_results in band_rows:
+                for band, run_id, *_ in band_rows:
                     result_dir = ccd_dir / band_slug(band)
                     rows = results_rows(session, run_id)
                     paths.append(_render_table_page(

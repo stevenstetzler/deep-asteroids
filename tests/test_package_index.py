@@ -59,9 +59,11 @@ def test_detectors_rows(session, seeded):
 
 def test_bands_rows_sorted_and_searched_flag(session, seeded):
     rows = bands_rows(session, NIGHT_1, "A0b", 1)
-    assert rows == [("VR", "run-searched", h.N_EXPOSURES, True, 2)]
+    # add_run()'s Search row only sets velocity_0/velocity_1 (0.1/0.5); no angle/dx, and no
+    # search_run row at all (snr), so those come back None
+    assert rows == [("VR", "run-searched", h.N_EXPOSURES, True, 2, 0.1, 0.5, None, None, None, None)]
     unsearched_rows = bands_rows(session, NIGHT_1, "A0b", 2)
-    assert unsearched_rows == [(None, "run-unsearched", h.N_EXPOSURES, False, 0)]
+    assert unsearched_rows == [(None, "run-unsearched", h.N_EXPOSURES, False, 0, None, None, None, None, None, None)]
 
 
 def test_results_rows_ordered_by_result_num(session, seeded):
@@ -88,6 +90,7 @@ def test_build_site_index_writes_every_level_and_links_resolve(session, seeded, 
 
     ccd1_page = (web_dir / "results" / str(NIGHT_1) / "A0b" / "ccd1" / "index.html").read_text()
     assert 'href="VR/index.html"' in ccd1_page and ">yes<" in ccd1_page
+    assert ">find-asteroids<" in ccd1_page and ">0.100<" in ccd1_page and ">0.500<" in ccd1_page
 
     ccd2_page = (web_dir / "results" / str(NIGHT_1) / "A0b" / "ccd2" / "index.html").read_text()
     assert 'href="all/index.html"' in ccd2_page and ">no<" in ccd2_page

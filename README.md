@@ -694,7 +694,12 @@ triple `ingest searches` knows about, whether or not it's actually been searched
 `search_run`: most of this database's real results were copied in via `ingest results
 --results-db`, with no `search_run` row of their own), plus a results count. The bands/searches
 page below that already shows this per-row (`searched`: yes/no) rather than aggregated, since
-each of its rows already is one search. Each of these pages is one cheap aggregate query, so
+each of its rows already is one search -- and, tagged `engine` `find-asteroids`, that search's
+own parameters: `vmin`/`vmax` (`velocity_0`/`velocity_1`), `angle_min`/`angle_max` (`angle_0`/
+`angle_1`) and `dx`, all from the find-asteroids `search` row itself (blank if unsearched), plus
+`snr` (`search_run`'s own detection threshold -- blank far more often than those, since it needs
+a `search_run` row, which most real searches here don't have). Each of these pages is one cheap
+aggregate query, so
 `package index` always rewrites every page rather than caching/skipping them the way `package
 result` does its (expensive) ones. The results table links to `<result_num>/index.html`
 whether or not `package result` has actually rendered that page yet -- the link just won't
