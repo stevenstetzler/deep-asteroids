@@ -196,18 +196,22 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
 
 
 def visualize_result(session, engine, run_id, result_num, out_dir, product_type=DEFAULT_PRODUCT_TYPE,
-                     cutout_size=DEFAULT_CUTOUT_SIZE, annotate=None, plot_format="png"):
+                     cutout_size=DEFAULT_CUTOUT_SIZE, annotate=None, plot_format="png", movie=True):
     """Measure + render everything for one find-asteroids result:
     ``light_curve.<plot_format>``/``coadd.<plot_format>``/``movie.gif``/
     ``sky.<plot_format>`` under ``out_dir`` (``plot_format`` e.g.
     ``"png"`` (default) or ``"pdf"`` for vector output; the movie is
     always a gif). Cutouts are written to a temporary directory and
-    discarded -- only those four files are kept. Returns the filled-in
-    ``VizSummary`` (with a ``sky_plot_data`` attribute --
-    ``(tracklet, gathered, exposure_times)`` -- stashed on it so a
-    combined report can redraw the sky plot in vector form without
-    re-measuring), or ``None`` if ``run_id``/``result_num`` doesn't exist
-    (run `ingest searches`/`ingest images`/`search run` first)."""
+    discarded -- only those four files are kept. ``movie=False`` skips
+    rendering/writing ``movie.gif`` entirely (it's by far the largest
+    artifact -- see #32/#33's storage estimate -- and no other artifact
+    depends on it: the PDF never embeds it, and the page just omits that
+    column). Returns the filled-in ``VizSummary`` (with a
+    ``sky_plot_data`` attribute -- ``(tracklet, gathered,
+    exposure_times)`` -- stashed on it so a combined report can redraw
+    the sky plot in vector form without re-measuring), or ``None`` if
+    ``run_id``/``result_num`` doesn't exist (run `ingest searches`/
+    `ingest images`/`search run` first)."""
     from pathlib import Path
 
     out_dir = Path(out_dir)
@@ -224,7 +228,7 @@ def visualize_result(session, engine, run_id, result_num, out_dir, product_type=
         for kind, path in (
             ("light_curve", render_light_curve_plot(summary, out_dir, fmt=plot_format)),
             ("coadd", render_coadd_plot(summary, out_dir, fmt=plot_format)),
-            ("movie", render_movie(summary, out_dir, annotate=annotate)),
+            ("movie", render_movie(summary, out_dir, annotate=annotate) if movie else None),
             ("sky", render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir,
                                     fmt=plot_format)),
         ):

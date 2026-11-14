@@ -628,7 +628,8 @@ result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
 ```bash
 deep-asteroids package result (--run-id R | --night N --field F --detector-number D [--band B]) \
     [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
-    [--annotate TEMPLATE] [--force] [--putative-real [--sigma-v-threshold 0.00025]] [--dry-run]
+    [--annotate TEMPLATE] [--force] [--putative-real [--sigma-v-threshold 0.00025]] [--dry-run] \
+    [--movie/--no-movie]
 ```
 
 #27's web-based interface, as a plain static site -- no server, nothing dynamic: one cached page
@@ -662,7 +663,15 @@ not just one search) is just this command run once per `run_id`, in parallel acr
 Slurm-sized worker pool: `examples/package_backfill.sh` (an `sbatch` job, never a login node)
 and its progress counterpart `examples/package_progress.sh`. No new tracking table -- a worker
 or the whole job can die partway through and a re-run only (re)does whatever `index.html` is
-still missing, since that check is the only manifest.
+still missing, since that check is the only manifest (`index.html` is itself written via a
+same-directory temp file + atomic rename, so a mid-write kill -- e.g. an `sbatch` job preempted
+on a checkpoint partition -- never leaves a truncated file that a later run would mistake for
+"done").
+
+`--no-movie` skips `movie.gif` -- by far the largest artifact (one frame per touched exposure,
+4x upscaled; see #32/#33's storage estimate) -- without affecting the page or the PDF report
+either way; `results/package_backfill_putative_real.sh`'s full-database backfill always passes
+it.
 
 A "Download PDF" button (top right) links to a pre-rendered, one-page
 `<run_id>-result-<result_num>.pdf` written alongside `index.html` (`render_result_pdf()`,

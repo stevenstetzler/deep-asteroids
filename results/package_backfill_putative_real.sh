@@ -18,8 +18,11 @@
 #     night's images first (idempotent -- needed since `package result`
 #     reads cutouts from `image` rows that full_survey_summary.sh never
 #     ingests; ~15s/night empirically, see PR #33), then fans `package
-#     result --run-id <run_id> --putative-real` for that night out across
-#     $SLURM_CPUS_PER_TASK workers (`xargs -P`, never `nproc`).
+#     result --run-id <run_id> --putative-real --no-movie` for that night
+#     out across $SLURM_CPUS_PER_TASK workers (`xargs -P`, never `nproc`).
+#     --no-movie skips movie.gif, by far the largest artifact (see PR #33's
+#     storage estimate) -- the page and PDF report are unaffected either
+#     way, so this is a pure storage cut.
 #
 # Usage (from a login node -- the submitter only calls `sbatch`):
 #
@@ -36,11 +39,21 @@
 # $LOG_DIR (default ./logs) all override.
 #
 # ckpt-all/ckpt-astro is preemptible -- a preempted job is automatically
-# requeued by Slurm (PreemptMode=REQUEUE on this partition) with no
-# action needed; either way, re-running (resubmitting or letting it
-# requeue) only (re)does the gap -- `package_result()`'s own
-# skip-if-index.html-exists check is the only manifest (#32's "no new
-# tracking table"), so nothing here tracks progress separately.
+# requeued by Slurm (PreemptMode=REQUEUE on this partition; `--requeue` is
+# also passed explicitly at submission, as a second guarantee) and simply
+# restarts this same script from the top under the same job ID (`%j` in
+# $LOG_DIR, hence --open-mode=append so a requeue doesn't wipe the
+# previous attempt's log -- each attempt's first line names its restart
+# count, $SLURM_RESTART_COUNT). That restart is always safe to just redo:
+# `ingest images` is idempotent per (night, field) group, and
+# `package_result()`'s own skip-if-index.html-exists check is the whole
+# manifest for everything after it (#32's "no new tracking table"), so
+# nothing here tracks progress separately -- a requeue only (re)does
+# whatever wasn't finished. That check is sound against a mid-write kill,
+# too: render_result_page() (web/site.py) writes index.html via a
+# same-directory temp file + atomic rename, so a worker killed mid-render
+# never leaves a truncated index.html that a later run would mistake for
+# "done".
 set -euo pipefail
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 cd "$(dirname "$SCRIPT_PATH")/.."
@@ -63,6 +76,7 @@ if [[ -n "${NIGHT:-}" ]]; then
         exit 1
     }
     workers="${SLURM_CPUS_PER_TASK:-1}"
+    echo "package_backfill_putative_real.sh: night $NIGHT: job $SLURM_JOB_ID, restart count ${SLURM_RESTART_COUNT:-0}" >&2
 
     : "${REPO_DIR:=/gscratch/dirac/DEEP/repo}"
     : "${REGISTRY_HOST:=epyc.astro.washington.edu/deep_klone_2}"
@@ -79,7 +93,7 @@ if [[ -n "${NIGHT:-}" ]]; then
 
     if [[ "$n_run_ids" -gt 0 ]]; then
         xargs -P "$workers" -I{} \
-            deep-asteroids package result --run-id {} --putative-real \
+            deep-asteroids package result --run-id {} --putative-real --no-movie \
                 --sigma-v-threshold "$SIGMA_V_THRESHOLD" --web-dir "$WEB_DIR" <<< "$run_ids"
     fi
     echo "package_backfill_putative_real.sh: night $NIGHT done" >&2
@@ -99,7 +113,7 @@ for night in $nights; do
     fi
     job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" --requeue \
         --job-name "package-backfill-$night" \
-        --output "$LOG_DIR/package_backfill_${night}_%j.out" \
+        --output "$LOG_DIR/package_backfill_${night}_%j.out" --open-mode=append \
         --export=ALL,NIGHT="$night" \
         "$SCRIPT_PATH")
     echo "package_backfill_putative_real.sh: night $night: $n putative-real result(s), submitted job $job_id" >&2
@@ -115,6 +129,6 @@ dependency=$(IFS=:; echo "afterany:${job_ids[*]}")
 index_job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c 1 --time 00:30:00 \
     --dependency "$dependency" \
     --job-name "package-backfill-index" \
-    --output "$LOG_DIR/package_backfill_index_%j.out" \
+    --output "$LOG_DIR/package_backfill_index_%j.out" --open-mode=append \
     --wrap "deep-asteroids package index --web-dir '$WEB_DIR'")
 echo "package_backfill_putative_real.sh: ${#job_ids[@]} night job(s) submitted, index job $index_job_id depends on all of them" >&2

@@ -31,9 +31,12 @@ def package(ctx):
               help="Putative-real cut threshold, same as `query results`")
 @click.option("--dry-run", is_flag=True,
               help="Report how many selected pages are already rendered vs. pending; render nothing")
+@click.option("--movie/--no-movie", default=True, show_default=True,
+              help="movie.gif is by far the largest artifact (#32/#33's storage estimate) -- "
+                   "--no-movie skips it; the page and PDF are unaffected either way")
 @click.pass_context
 def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_dir, product_type, cutout_size,
-          annotate, force, putative_real, sigma_v_threshold, dry_run):
+          annotate, force, putative_real, sigma_v_threshold, dry_run, movie):
     """One cached page per result under
     web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html.
 
@@ -103,7 +106,7 @@ def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_
 
                 skipped, path = package_result(session, engine, sd, result_num, web_dir,
                                                product_type=product_type, cutout_size=cutout_size,
-                                               annotate=annotate, force=force)
+                                               annotate=annotate, force=force, movie=movie)
                 if path is None:
                     n_missing += 1
                     click.echo(f"{sd.run_id} #{result_num}: no such result, skipping")

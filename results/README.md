@@ -40,14 +40,20 @@ From a login node (it only submits `sbatch` jobs, does no rendering itself):
 submits one `sbatch` job per night that has at least one putative-real
 result at `sigma_v < 0.00015` (`$SIGMA_V_THRESHOLD` overrides), each
 rendering that night's results (`deep-asteroids package result
---putative-real`) across `$CORES` (default 16) workers on `-p ckpt-all -A
-ckpt-astro` (`$PARTITION`/`$ACCOUNT` override -- ckpt is preemptible, cheap,
-and this workload doesn't need a dedicated allocation), plus one final
-`package index` job depending on all of them. See the script's own header
-comment for the full option list, and PR #33 for the runtime/storage
-estimate behind the defaults.
+--putative-real --no-movie` -- no movies, to keep storage down: see PR #33)
+across `$CORES` (default 16) workers on `-p ckpt-all -A ckpt-astro`
+(`$PARTITION`/`$ACCOUNT` override -- ckpt is preemptible, cheap, and this
+workload doesn't need a dedicated allocation), plus one final `package
+index` job depending on all of them. See the script's own header comment
+for the full option list, and PR #33 for the runtime/storage estimate
+behind the defaults.
 
-Also preemptible- and restart-safe: `package result`'s own
-skip-if-`index.html`-exists check is the whole manifest (#32's "no new
-tracking table"), so a requeued or resubmitted run only (re)does whatever
-didn't finish.
+Also preemptible- and requeue-safe: ckpt jobs get killed and automatically
+restarted (`PreemptMode=REQUEUE`, plus `--requeue` passed explicitly) under
+the same job ID, logs preserved across the restart (`--open-mode=append`);
+`package result`'s own skip-if-`index.html`-exists check is the whole
+manifest either way (#32's "no new tracking table"), so a restart,
+requeue, or resubmission only (re)does whatever didn't finish --
+`index.html` itself is written via a temp file + atomic rename, so a
+mid-render kill never leaves a truncated one behind that a later run
+would mistake for "done".

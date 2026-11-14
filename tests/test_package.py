@@ -66,6 +66,20 @@ def test_package_result_renders_and_caches(session, definition, result_num, tmp_
     assert not forced_skipped and forced_path == path
 
 
+def test_package_result_no_movie_skips_the_largest_artifact(session, definition, result_num, tmp_path):
+    """movie=False (#32/#33's storage-saving flag): no movie.gif, but the page, the other
+    three plots and the PDF are all unaffected."""
+    skipped, path = package_result(session, h.FakeCutoutEngine(), definition, result_num, tmp_path, movie=False)
+    assert not skipped and path is not None
+    page = path.read_text()
+    assert "movie.gif" not in page and not (path.parent / "movie.gif").exists()
+    for img in ("light_curve.png", "coadd.png", "sky.png"):
+        assert img in page and (path.parent / img).exists()
+
+    pdf = path.parent / f"{h.RUN_ID}-result-{result_num}.pdf"
+    assert pdf.exists() and pdf.stat().st_size > 0 and "Download PDF" in page
+
+
 def test_render_result_pdf_needs_sky_coadd_light_curve(session, definition, result_num, tmp_path):
     from deep_asteroids.viz.result import visualize_result
 
@@ -129,6 +143,18 @@ def test_cli_package_result(session, definition, result_num, tmp_path, monkeypat
         "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--result-num", "999",
     ])
     assert "1 missing" in narrowed.output
+
+
+def test_cli_package_result_no_movie(session, definition, result_num, tmp_path, monkeypatch, runner):
+    monkeypatch.setattr("deep_asteroids.util.cutout.LSSTCutoutPhotometry", h.FakeCutoutEngine)
+    web_dir = tmp_path / "web"
+    result = runner.invoke(main, [
+        "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--no-movie",
+    ])
+    assert result.exit_code == 0, result.output
+    page = web_dir / "results" / "20190403" / "T1" / "ccd1" / "all" / str(result_num) / "index.html"
+    assert page.exists() and "movie.gif" not in page.read_text()
+    assert not (page.parent / "movie.gif").exists()
 
 
 def test_cli_package_result_putative_real_and_dry_run(session, definition, result_num, tmp_path, monkeypatch, runner):
