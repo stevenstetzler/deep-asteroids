@@ -628,7 +628,7 @@ result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
 ```bash
 deep-asteroids package result (--run-id R | --night N --field F --detector-number D [--band B]) \
     [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
-    [--annotate TEMPLATE] [--force]
+    [--annotate TEMPLATE] [--force] [--putative-real [--sigma-v-threshold 0.00025]] [--dry-run]
 ```
 
 #27's web-based interface, as a plain static site -- no server, nothing dynamic: one cached page
@@ -649,8 +649,20 @@ curve | movie) that the browser wraps row-to-column on its own as the window nar
 no explicit mobile breakpoint, just a shared `min-width` on every column. Every plot's CSS
 height matches the movie's own rendered height, so they line up regardless of each plot's own
 aspect ratio. Selects search definitions the same way `search run` does; every one of their
-results is packaged unless `--result-num` narrows it. A page that already exists is left alone
-(the cache) unless `--force`.
+results is packaged unless `--result-num` or `--putative-real` narrows it. A page that already
+exists is left alone (the cache) unless `--force`.
+
+`--putative-real` narrows to the results that pass the putative-real cut -- the same
+classification `query results --putative-real` reports (`--sigma-v-threshold` is the same
+threshold too), so the two always agree; needs `statistics`/`crossmatch`/`dedup` already run.
+`--dry-run` reports how many of the selected pages are already rendered vs. still pending,
+without rendering (or needing the vendored cutout engine) at all -- a progress view over the
+same selection, not a separate count. #32's full-database backfill (every putative-real result,
+not just one search) is just this command run once per `run_id`, in parallel across a
+Slurm-sized worker pool: `examples/package_backfill.sh` (an `sbatch` job, never a login node)
+and its progress counterpart `examples/package_progress.sh`. No new tracking table -- a worker
+or the whole job can die partway through and a re-run only (re)does whatever `index.html` is
+still missing, since that check is the only manifest.
 
 A "Download PDF" button (top right) links to a pre-rendered, one-page
 `<run_id>-result-<result_num>.pdf` written alongside `index.html` (`render_result_pdf()`,
