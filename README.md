@@ -626,7 +626,7 @@ result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
 ## The static result site
 
 ```bash
-deep-asteroids package (--run-id R | --night N --field F --detector-number D [--band B]) \
+deep-asteroids package result (--run-id R | --night N --field F --detector-number D [--band B]) \
     [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
     [--annotate TEMPLATE] [--force]
 ```
@@ -668,9 +668,44 @@ own PNGs) -- genuinely vector output, so it stays crisp at any zoom, without nee
 PDF-manipulation dependency. Skipped (the page gets no button) if any of sky/coadd/light
 curve didn't render, e.g. no cutouts survived.
 
-Not done here (follow-up #27 work): the index pages above the leaf (listing nights, fields, CCDs,
-bands, and the coverage/search-tracking pages from #26) -- this lays down the leaf page and its
-URL scheme first.
+### Browsing: the index pages above the leaf
+
+```bash
+deep-asteroids package index [--web-dir web]
+```
+
+The rest of the site: plain tables of metadata linking down to child pages, straight from
+the current database state --
+
+```
+web/index.html                                                     nights
+web/results/<night>/index.html                                     fields, for that night
+web/results/<night>/<field>/index.html                              CCDs, for that (night, field)
+web/results/<night>/<field>/ccd<detector_number>/index.html         bands/searches, for that CCD
+web/results/<night>/<field>/ccd<detector_number>/<band>/index.html  results, for that search
+```
+
+Every level's rows come pre-sorted by a sensible default (numeric night/detector_number,
+lexical field/band, numeric result_num -- find-asteroids' own ranking, best first), with an
+"up" link back to the parent and, at the nights/fields/CCDs levels, both **searches defined**
+(`search_definition` rows below that row -- every `(night, field, detector_number, band)`
+triple `ingest searches` knows about, whether or not it's actually been searched) and
+**searches executed** (how many of those have a find-asteroids `search` row -- not
+`search_run`: most of this database's real results were copied in via `ingest results
+--results-db`, with no `search_run` row of their own), plus a results count. The bands/searches
+page below that already shows this per-row (`searched`: yes/no) rather than aggregated, since
+each of its rows already is one search -- and, tagged `engine` `find-asteroids`, that search's
+own parameters: `vmin`/`vmax` (`velocity_0`/`velocity_1`), `angle_min`/`angle_max` (`angle_0`/
+`angle_1`) and `dx`, all from the find-asteroids `search` row itself (blank if unsearched), plus
+`snr` (`search_run`'s own detection threshold -- blank far more often than those, since it needs
+a `search_run` row, which most real searches here don't have). Each of these pages is one cheap
+aggregate query, so
+`package index` always rewrites every page rather than caching/skipping them the way `package
+result` does its (expensive) ones. The results table links to `<result_num>/index.html`
+whether or not `package result` has actually rendered that page yet -- the link just won't
+resolve until it has, same as the coverage/search-tracking page from #26 isn't connected into
+this site yet (still open, along with picking out which results are worth surfacing once a
+search has more than a handful).
 
 `examples/package_ccd41_24.sh` reproduces the one page committed under `web/`
 (`web/results/20190402/A0b/ccd41/VR/24/`) end to end against the real registry/repo, the same

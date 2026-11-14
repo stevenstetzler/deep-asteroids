@@ -3,7 +3,14 @@ import click
 from deep_asteroids.cli import main
 
 
-@main.command()
+@main.group()
+@click.pass_context
+def package(ctx):
+    """Write the static result site (#27): result pages (`package result`) and the
+    index pages above them (`package index`)."""
+
+
+@package.command()
 @click.option("--run-id", "run_ids", multiple=True, help="A search definition's run_id (repeatable)")
 @click.option("--night", type=int)
 @click.option("--field", "field_", type=str)
@@ -18,10 +25,10 @@ from deep_asteroids.cli import main
               help="A str.format() template for each movie frame -- see `viz result --help`")
 @click.option("--force", is_flag=True, help="Re-render pages that already exist")
 @click.pass_context
-def package(ctx, run_ids, night, field_, detector_number, band, result_nums, web_dir, product_type, cutout_size,
-           annotate, force):
-    """Write the static result site: one cached page per result under
-    web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html (#27).
+def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_dir, product_type, cutout_size,
+          annotate, force):
+    """One cached page per result under
+    web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html.
 
     Selects search definitions the same way `search run` does (--run-id, or
     --night/--field/--detector-number/--band); every one of their results is packaged
@@ -70,5 +77,26 @@ def package(ctx, run_ids, night, field_, detector_number, band, result_nums, web
                 else:
                     n_rendered += 1
 
-    click.echo(f"package: {n_rendered} page(s) rendered, {n_skipped} already present, {n_missing} missing, "
+    click.echo(f"package result: {n_rendered} page(s) rendered, {n_skipped} already present, {n_missing} missing, "
               f"under {web_dir}")
+
+
+@package.command()
+@click.option("--web-dir", type=click.Path(file_okay=False), default="web", show_default=True)
+@click.pass_context
+def index(ctx, web_dir):
+    """(Re)write every index page above the leaf: nights -> fields -> CCDs ->
+    bands (searches) -> results, straight from the database.
+
+    Always rewrites every page (cheap: one aggregate query each), reflecting whatever's
+    currently ingested -- `ingest searches`/`search run`/`ingest results` -- whether or not
+    `package result` has actually rendered a given result's own page yet (its links just
+    won't resolve until it has)."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.database import get_db
+    from deep_asteroids.web.index import build_site_index
+
+    with Session(get_db()) as session:
+        paths = build_site_index(session, web_dir)
+    click.echo(f"package index: {len(paths)} page(s) written under {web_dir}")

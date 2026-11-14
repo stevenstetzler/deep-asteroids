@@ -1,6 +1,7 @@
-"""Tests for web/site.py and `deep-asteroids package` (#27): the static
-result site, one cached page per result under
-web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html."""
+"""Tests for web/site.py and `deep-asteroids package result` (#27): the
+static result site, one cached page per result under
+web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html.
+See test_package_index.py for `deep-asteroids package index`."""
 from pathlib import Path
 
 import pytest
@@ -111,25 +112,25 @@ def test_package_result_missing_result(session, definition, tmp_path):
     assert not skipped and path is None
 
 
-def test_cli_package(session, definition, result_num, tmp_path, monkeypatch, runner):
+def test_cli_package_result(session, definition, result_num, tmp_path, monkeypatch, runner):
     monkeypatch.setattr("deep_asteroids.util.cutout.LSSTCutoutPhotometry", h.FakeCutoutEngine)
     web_dir = tmp_path / "web"
-    result = runner.invoke(main, ["package", "--run-id", h.RUN_ID, "--web-dir", str(web_dir)])
+    result = runner.invoke(main, ["package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir)])
     assert result.exit_code == 0, result.output
     assert "page(s) rendered" in result.output and "0 missing" in result.output
-    n_rendered = int(result.output.split()[1])
+    n_rendered = int(result.output.split()[2])
     page = web_dir / "results" / "20190403" / "T1" / "ccd1" / "all" / str(result_num) / "index.html"
     assert page.exists()
 
-    again = runner.invoke(main, ["package", "--run-id", h.RUN_ID, "--web-dir", str(web_dir)])
+    again = runner.invoke(main, ["package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir)])
     assert f"{n_rendered} already present" in again.output
 
     narrowed = runner.invoke(main, [
-        "package", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--result-num", "999",
+        "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--result-num", "999",
     ])
     assert "1 missing" in narrowed.output
 
 
-def test_cli_package_needs_a_selection(runner, session):
-    result = runner.invoke(main, ["package", "--web-dir", "web"])
+def test_cli_package_result_needs_a_selection(runner, session):
+    result = runner.invoke(main, ["package", "result", "--web-dir", "web"])
     assert result.exit_code != 0 and "select at least one search definition" in result.output
