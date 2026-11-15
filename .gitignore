@@ -237,3 +237,8 @@ src/deep_asteroids/_version.py
 !/web/results/**/
 !/web/results/**/index.html
 !/web/results/20190402/A0b/ccd41/VR/24/*
+
+# results/search_backfill_vr.sh's (#28) own generated run_id lists -- regenerated/rewritten
+# each invocation, not source
+/results/vr_run_ids.txt
+/results/vr_run_ids_submitted.txt

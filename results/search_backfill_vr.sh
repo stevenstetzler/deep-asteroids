@@ -80,12 +80,22 @@ fi
 
 # Submitter: materialize the run_id list (idempotent -- always recomputed fresh from the
 # database's current state), then submit one array job over it.
+#
+# list_vr_run_ids.py only excludes a run_id once it has a *committed* `search` row -- which a
+# shard submitted by an earlier invocation of this script won't have yet while its tasks are
+# still queued/running. Without tracking that separately, a budget-limited resubmission (the
+# whole point of $SUBMIT_BUDGET below) would keep re-offering the same still-in-flight run_ids
+# as the "next" chunk. $SUBMITTED_LIST is this script's own flat-file manifest of every run_id
+# it has ever submitted (appended to as each shard goes out, never cleared) -- not a new
+# database table, just enough bookkeeping for this one script to stay resumable.
+: "${SUBMITTED_LIST:=$(pwd)/results/vr_run_ids_submitted.txt}"
 mkdir -p "$LOG_DIR" "$(dirname "$RUN_ID_LIST")"
-python3 results/list_vr_run_ids.py > "$RUN_ID_LIST"
+touch "$SUBMITTED_LIST"
+python3 results/list_vr_run_ids.py | grep -vFxf "$SUBMITTED_LIST" > "$RUN_ID_LIST" || true
 n=$(wc -l < "$RUN_ID_LIST")
 if [[ "$n" -eq 0 ]]; then
-    echo "search_backfill_vr.sh: no in-scope, image-complete VR run_ids found" >&2
-    exit 1
+    echo "search_backfill_vr.sh: nothing left to submit (already done or already in flight)" >&2
+    exit 0
 fi
 # Shard into chunks of at most $MAX_ARRAY_SIZE (default 400): Slurm's own MaxArraySize
 # (1001 on this cluster) caps an individual task ID, not just the range size, so a list this
@@ -103,11 +113,9 @@ fi
 # jobs) caps how many of this user's total jobs this invocation will push toward; it submits
 # shards one at a time, stops (without erroring) the moment the next one wouldn't fit, and
 # says how much is left. Expect to re-run this script repeatedly as earlier shards drain --
-# list_vr_run_ids.py already excludes anything with a `search` row, so each re-run only
-# enumerates the actual remainder, nothing double-counted (modulo the rare case of
-# resubmitting a run_id whose array task is still in flight but hasn't committed yet --
-# harmless: `Search.run_id` is unique, so the loser of that race just fails cleanly instead
-# of corrupting anything).
+# between list_vr_run_ids.py's own exclusion (anything with a `search` row) and
+# $SUBMITTED_LIST (anything this script has already queued, committed or not), each re-run
+# only enumerates the actual remainder.
 : "${MAX_ARRAY_SIZE:=400}"
 : "${SUBMIT_BUDGET:=450}"
 n_shards=$(( (n + MAX_ARRAY_SIZE - 1) / MAX_ARRAY_SIZE ))
@@ -117,7 +125,12 @@ offset=0
 while [[ "$offset" -lt "$n" ]]; do
     chunk=$(( n - offset < MAX_ARRAY_SIZE ? n - offset : MAX_ARRAY_SIZE ))
 
-    current_jobs=$(squeue -u "$USER" -h | wc -l)
+    # -r: expand a pending array job into one row per task -- squeue's default collapsed
+    # "<jobid>_[1-400]" display undercounts by exactly the array size, since every task still
+    # counts individually against MaxSubmitJobsPerUser regardless of how squeue displays it
+    # (confirmed directly: submitting one 400-task shard took the real count from 2 to 402,
+    # not 3).
+    current_jobs=$(squeue -u "$USER" -h -r | wc -l)
     if [[ "$((current_jobs + chunk))" -gt "$SUBMIT_BUDGET" ]]; then
         remaining=$(( n - offset ))
         echo "search_backfill_vr.sh: stopping -- $current_jobs job(s) already queued, next shard ($chunk tasks) would exceed \$SUBMIT_BUDGET ($SUBMIT_BUDGET). $remaining run_id(s) still left; re-run this script once earlier shards have drained." >&2
@@ -131,5 +144,6 @@ while [[ "$offset" -lt "$n" ]]; do
         --export="ALL,CHUNK_OFFSET=${offset}" \
         "$SCRIPT_PATH")
     echo "search_backfill_vr.sh: submitted array job $job_id (lines $((offset + 1))-$((offset + chunk)), throttle $THROTTLE)" >&2
+    sed -n "$((offset + 1)),$((offset + chunk))p" "$RUN_ID_LIST" >> "$SUBMITTED_LIST"
     offset=$(( offset + chunk ))
 done
