@@ -241,4 +241,5 @@ src/deep_asteroids/_version.py
 # results/search_backfill_vr.sh's (#28) own generated run_id lists -- regenerated/rewritten
 # each invocation, not source
 /results/vr_run_ids.txt
+/results/vr_run_ids.shard_*.txt
 /results/vr_run_ids_submitted.txt

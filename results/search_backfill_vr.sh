@@ -73,26 +73,30 @@ cd "$REPO_ROOT"
 export DEEP_ASTEROIDS_DB DEEP_DB REPO_ROOT RUN_ID_LIST CATALOG_DIR
 
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
-    # Worker: one array task, one run_id -- line ($CHUNK_OFFSET + $SLURM_ARRAY_TASK_ID) of
-    # $RUN_ID_LIST. $CHUNK_OFFSET (default 0) lets the submitter shard a run_id list longer
-    # than Slurm's own MaxArraySize (1001 on this cluster -- an individual task ID, not just
-    # the range size, must stay below it) across several array jobs that all read the same
-    # list, each covering a different chunk.
-    line=$(( ${CHUNK_OFFSET:-0} + SLURM_ARRAY_TASK_ID ))
-    run_id=$(sed -n "${line}p" "$RUN_ID_LIST")
+    # Worker: one array task, one run_id -- line $SLURM_ARRAY_TASK_ID of $RUN_ID_LIST, which
+    # for a worker is always a per-shard *snapshot* file the submitter wrote once and never
+    # touches again (see below), never the submitter's own shared, repeatedly-overwritten
+    # candidate list. Learned this the hard way: two straggler tasks from an earlier shard
+    # read "no run_id at that line" because a later submitter invocation had already
+    # overwritten the shared list out from under them mid-flight.
+    run_id=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$RUN_ID_LIST")
     [[ -n "$run_id" ]] || {
-        echo "search_backfill_vr.sh: no run_id at line $line of $RUN_ID_LIST" >&2
+        echo "search_backfill_vr.sh: no run_id at line $SLURM_ARRAY_TASK_ID of $RUN_ID_LIST" >&2
         exit 1
     }
-    echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID (line $line): $run_id, job $SLURM_JOB_ID, restart count ${SLURM_RESTART_COUNT:-0}" >&2
+    echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID: $run_id, job $SLURM_JOB_ID, restart count ${SLURM_RESTART_COUNT:-0}" >&2
 
     deep-asteroids search run --run-id "$run_id" --catalog-dir "$CATALOG_DIR" --remove-catalogs
     echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID: $run_id done" >&2
     exit 0
 fi
 
-# Submitter: materialize the run_id list (idempotent -- always recomputed fresh from the
-# database's current state), then submit one array job over it.
+# Submitter: materialize the candidate list fresh (idempotent -- straight from the
+# database's current state), then submit one array job per shard, each against its *own*
+# snapshot file -- never the shared, repeatedly-regenerated $RUN_ID_LIST path, which a
+# worker must never read directly (see the worker branch's own comment on why: a later
+# invocation overwriting it out from under an in-flight earlier shard is exactly the bug that
+# cost two tasks).
 #
 # list_vr_run_ids.py only excludes a run_id once it has a *committed* `search` row -- which a
 # shard submitted by an earlier invocation of this script won't have yet while its tasks are
@@ -101,11 +105,12 @@ fi
 # as the "next" chunk. $SUBMITTED_LIST is this script's own flat-file manifest of every run_id
 # it has ever submitted (appended to as each shard goes out, never cleared) -- not a new
 # database table, just enough bookkeeping for this one script to stay resumable.
-: "${SUBMITTED_LIST:=$(pwd)/results/vr_run_ids_submitted.txt}"
-mkdir -p "$LOG_DIR" "$(dirname "$RUN_ID_LIST")"
+: "${SUBMITTED_LIST:=$REPO_ROOT/results/vr_run_ids_submitted.txt}"
+CANDIDATES="$REPO_ROOT/results/vr_run_ids.txt"
+mkdir -p "$LOG_DIR" "$(dirname "$CANDIDATES")"
 touch "$SUBMITTED_LIST"
-python3 results/list_vr_run_ids.py | grep -vFxf "$SUBMITTED_LIST" > "$RUN_ID_LIST" || true
-n=$(wc -l < "$RUN_ID_LIST")
+python3 results/list_vr_run_ids.py | grep -vFxf "$SUBMITTED_LIST" > "$CANDIDATES" || true
+n=$(wc -l < "$CANDIDATES")
 if [[ "$n" -eq 0 ]]; then
     echo "search_backfill_vr.sh: nothing left to submit (already done or already in flight)" >&2
     exit 0
@@ -132,7 +137,7 @@ fi
 : "${MAX_ARRAY_SIZE:=400}"
 : "${SUBMIT_BUDGET:=450}"
 n_shards=$(( (n + MAX_ARRAY_SIZE - 1) / MAX_ARRAY_SIZE ))
-echo "search_backfill_vr.sh: $n run_id(s) in $RUN_ID_LIST, $n_shards array job(s) needed, $THROTTLE concurrent per active shard" >&2
+echo "search_backfill_vr.sh: $n run_id(s) in $CANDIDATES, $n_shards array job(s) needed, $THROTTLE concurrent per active shard" >&2
 
 offset=0
 while [[ "$offset" -lt "$n" ]]; do
@@ -150,13 +155,19 @@ while [[ "$offset" -lt "$n" ]]; do
         break
     fi
 
+    # This shard's own immutable snapshot -- line $SLURM_ARRAY_TASK_ID of *this* file, never
+    # $CANDIDATES itself, which the next invocation of this script will overwrite long before
+    # a slow or requeued task here is done with it.
+    shard_list="$REPO_ROOT/results/vr_run_ids.shard_$(date +%s%N)_${offset}.txt"
+    sed -n "$((offset + 1)),$((offset + chunk))p" "$CANDIDATES" > "$shard_list"
+
     job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" --requeue \
         --array="1-${chunk}%${THROTTLE}" \
         --job-name "search-backfill-vr" \
         --output "$LOG_DIR/search_backfill_vr_%A_%a.out" --open-mode=append \
-        --export="ALL,CHUNK_OFFSET=${offset}" \
+        --export="ALL,RUN_ID_LIST=${shard_list}" \
         "$REPO_ROOT/results/search_backfill_vr.sh")
-    echo "search_backfill_vr.sh: submitted array job $job_id (lines $((offset + 1))-$((offset + chunk)), throttle $THROTTLE)" >&2
-    sed -n "$((offset + 1)),$((offset + chunk))p" "$RUN_ID_LIST" >> "$SUBMITTED_LIST"
+    echo "search_backfill_vr.sh: submitted array job $job_id (lines $((offset + 1))-$((offset + chunk)) of $CANDIDATES, snapshot $shard_list, throttle $THROTTLE)" >&2
+    cat "$shard_list" >> "$SUBMITTED_LIST"
     offset=$(( offset + chunk ))
 done
