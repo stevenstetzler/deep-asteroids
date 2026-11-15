@@ -60,13 +60,18 @@ cd "$(dirname "$SCRIPT_PATH")/.."
 export DEEP_ASTEROIDS_DB DEEP_DB
 
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
-    # Worker: one array task, one run_id (line $SLURM_ARRAY_TASK_ID of $RUN_ID_LIST).
-    run_id=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$RUN_ID_LIST")
+    # Worker: one array task, one run_id -- line ($CHUNK_OFFSET + $SLURM_ARRAY_TASK_ID) of
+    # $RUN_ID_LIST. $CHUNK_OFFSET (default 0) lets the submitter shard a run_id list longer
+    # than Slurm's own MaxArraySize (1001 on this cluster -- an individual task ID, not just
+    # the range size, must stay below it) across several array jobs that all read the same
+    # list, each covering a different chunk.
+    line=$(( ${CHUNK_OFFSET:-0} + SLURM_ARRAY_TASK_ID ))
+    run_id=$(sed -n "${line}p" "$RUN_ID_LIST")
     [[ -n "$run_id" ]] || {
-        echo "search_backfill_vr.sh: no run_id at line $SLURM_ARRAY_TASK_ID of $RUN_ID_LIST" >&2
+        echo "search_backfill_vr.sh: no run_id at line $line of $RUN_ID_LIST" >&2
         exit 1
     }
-    echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID: $run_id, job $SLURM_JOB_ID, restart count ${SLURM_RESTART_COUNT:-0}" >&2
+    echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID (line $line): $run_id, job $SLURM_JOB_ID, restart count ${SLURM_RESTART_COUNT:-0}" >&2
 
     deep-asteroids search run --run-id "$run_id" --catalog-dir "$CATALOG_DIR" --remove-catalogs
     echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID: $run_id done" >&2
@@ -82,11 +87,26 @@ if [[ "$n" -eq 0 ]]; then
     echo "search_backfill_vr.sh: no in-scope, image-complete VR run_ids found" >&2
     exit 1
 fi
-echo "search_backfill_vr.sh: $n run_id(s) in $RUN_ID_LIST, submitting array (throttle %$THROTTLE)" >&2
+# Shard into chunks of at most $MAX_ARRAY_SIZE (Slurm's own MaxArraySize, 1001 on this
+# cluster, caps an individual task ID -- not just the range size -- so a list longer than
+# that needs more than one array job, each reading a different offset into the same list).
+# $THROTTLE is divided across the shards (rounded up) so *total* concurrency across all of
+# them stays close to what was actually asked for/calibrated against, rather than multiplying
+# it by the shard count.
+: "${MAX_ARRAY_SIZE:=1000}"
+n_shards=$(( (n + MAX_ARRAY_SIZE - 1) / MAX_ARRAY_SIZE ))
+per_shard_throttle=$(( (THROTTLE + n_shards - 1) / n_shards ))
+echo "search_backfill_vr.sh: $n run_id(s) in $RUN_ID_LIST, $n_shards array job(s), $per_shard_throttle concurrent each (~$THROTTLE total)" >&2
 
-job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" --requeue \
-    --array="1-${n}%${THROTTLE}" \
-    --job-name "search-backfill-vr" \
-    --output "$LOG_DIR/search_backfill_vr_%A_%a.out" --open-mode=append \
-    "$SCRIPT_PATH")
-echo "search_backfill_vr.sh: submitted array job $job_id ($n tasks, throttle $THROTTLE)" >&2
+offset=0
+while [[ "$offset" -lt "$n" ]]; do
+    chunk=$(( n - offset < MAX_ARRAY_SIZE ? n - offset : MAX_ARRAY_SIZE ))
+    job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" --requeue \
+        --array="1-${chunk}%${per_shard_throttle}" \
+        --job-name "search-backfill-vr" \
+        --output "$LOG_DIR/search_backfill_vr_%A_%a.out" --open-mode=append \
+        --export="ALL,CHUNK_OFFSET=${offset}" \
+        "$SCRIPT_PATH")
+    echo "search_backfill_vr.sh: submitted array job $job_id (lines $((offset + 1))-$((offset + chunk)), throttle $per_shard_throttle)" >&2
+    offset=$(( offset + chunk ))
+done
