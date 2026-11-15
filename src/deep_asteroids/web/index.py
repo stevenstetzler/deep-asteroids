@@ -131,14 +131,15 @@ def results_rows(session, run_id):
     ]
 
 
-def _render_table_page(out_path, title, up_href, columns, rows, empty_message, extra_links=None):
-    """Writes a plain HTML page: an optional "up" link, then optional ``extra_links``
-    (``[(label, href), ...]``, e.g. a cross-link to another section), then a table of
-    ``rows`` under ``columns`` headers (or ``empty_message`` if there are none). Each row's
-    first element is ``(label, href)`` for its link cell; the rest are plain values. Returns
-    the path."""
+def _table_html(title, up_href, columns, rows, empty_message, extra_links=None):
+    """The HTML page itself, as a string: an optional "up" link, then optional
+    ``extra_links`` (``[(label, href), ...]``, e.g. a cross-link to another section), then a
+    table of ``rows`` under ``columns`` headers (or ``empty_message`` if there are none).
+    Each row's first element is ``(label, href)`` for its link cell; the rest are plain
+    values. Shared by ``_render_table_page()`` (writes it to the static site) and
+    ``web.server`` (#28's live-query sketch -- returns it straight as a response body, no
+    file written at all)."""
     esc = html.escape
-    out_path = Path(out_path)
 
     if rows:
         header = "".join(f"<th>{esc(c)}</th>" for c in columns)
@@ -154,7 +155,7 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message, e
     up_link = f'  <p><a href="{esc(up_href)}">&uarr; up</a></p>\n' if up_href else ""
     extra = "".join(f'  <p><a href="{esc(href)}">{esc(label)}</a></p>\n' for label, href in (extra_links or []))
 
-    page = f"""<!doctype html>
+    return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -175,8 +176,14 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message, e
 </body>
 </html>
 """
+
+
+def _render_table_page(out_path, title, up_href, columns, rows, empty_message, extra_links=None):
+    """Writes ``_table_html()``'s page to ``out_path`` (parents created as needed). Returns
+    the path."""
+    out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(page)
+    out_path.write_text(_table_html(title, up_href, columns, rows, empty_message, extra_links=extra_links))
     return out_path
 
 

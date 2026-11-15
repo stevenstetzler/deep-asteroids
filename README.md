@@ -730,6 +730,33 @@ done or not, sort to the top. Meant as the "what exists and what's run" overview
 already prints as text (same `searched` definition, same joins), for the web page instead of a
 terminal.
 
+### A live, per-request alternative (sketch)
+
+```bash
+deep-asteroids serve [--host 127.0.0.1] [--port 5000] [--debug]
+```
+
+`package index` writing every page as a static file turns out to be slow at full-survey scale
+(hours, not minutes -- see #33: not because any one query is expensive, but because writing
+tens of thousands of small files is itself a slow, filesystem-metadata-bound operation).
+`deep_asteroids/web/server.py` is a sketch of the alternative: a small Flask app (modeled on
+salad's own `serve.py`) serving the same nights -> fields -> CCDs -> bands -> results
+drill-down and the `/search/` coverage page computed fresh per request, nothing written to
+disk at all. It reuses `web/index.py`'s own row-fetching functions and HTML rendering
+verbatim, so a page here is byte-for-byte the page `package index` would have written.
+
+Benchmarked against the real full-survey database: every drill-down query (one night/field/
+CCD/band/run_id at a time) answers in single-digit milliseconds to a couple hundred -- plenty
+fast to serve live, and this is the overwhelming majority of pages, which is exactly what
+made bulk-writing them all as files slow. The two whole-survey rollups (`/` itself and
+`/search/`, each aggregating across all 43,586 `search_definition`/276,797 `result` rows) take
+15-25 seconds even warm, regardless of indexes -- too slow to compute on every request. See
+`web/server.py`'s own module docstring for the full numbers and the resulting recommendation:
+a hybrid, not a wholesale replacement -- serve the drill-down live, keep the two rollups
+cached/periodic. This sketch doesn't implement that caching layer yet (needs `pip install
+'deep-asteroids[serve]'` for Flask; not installed by default, and not meant for real
+deployment -- Flask's own dev server, not gunicorn).
+
 ## Known-object tracklets
 
 ```bash
