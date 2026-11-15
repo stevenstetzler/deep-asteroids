@@ -32,9 +32,11 @@
 #
 # $CORES (default 4, per calibration), $THROTTLE (the array's `%N`, default 16),
 # $PARTITION/$ACCOUNT (default ckpt-all/ckpt-astro), $TIME (per-task wall time, default
-# 00:10:00 -- comfortably above the ~77s slowest calibration run), $CATALOG_DIR (default
-# /gscratch/scrubbed/$USER/deep_asteroids/catalogs -- scrubbed, so don't let this run span
-# the ~21-day inactivity window) all override.
+# 00:30:00 -- the isolated calibration's slowest run was ~77s, but real concurrent execution
+# on a shared, contended node hit one real detect() taking 552.6s and killed two more at the
+# original 10-minute limit; 30 minutes is a guess at enough headroom, not itself calibrated),
+# $CATALOG_DIR (default /gscratch/scrubbed/$USER/deep_asteroids/catalogs -- scrubbed, so
+# don't let this run span the ~21-day inactivity window) all override.
 #
 # ckpt-all/ckpt-astro is preemptible -- `--requeue` is passed explicitly (on top of the
 # partition's own PreemptMode=REQUEUE), `--open-mode=append` keeps a requeued task's log
@@ -59,7 +61,7 @@ cd "$REPO_ROOT"
 : "${THROTTLE:=16}"
 : "${PARTITION:=ckpt-all}"
 : "${ACCOUNT:=ckpt-astro}"
-: "${TIME:=00:10:00}"
+: "${TIME:=00:30:00}"
 : "${CATALOG_DIR:=/gscratch/scrubbed/$USER/deep_asteroids/catalogs}"
 : "${LOG_DIR:=$REPO_ROOT/results/logs}"
 : "${RUN_ID_LIST:=$REPO_ROOT/results/vr_run_ids.txt}"
