@@ -87,29 +87,31 @@ if [[ "$n" -eq 0 ]]; then
     echo "search_backfill_vr.sh: no in-scope, image-complete VR run_ids found" >&2
     exit 1
 fi
-# Shard into chunks of at most $MAX_ARRAY_SIZE (Slurm's own MaxArraySize, 1001 on this
-# cluster, caps an individual task ID -- not just the range size -- so a list longer than
-# that needs more than one array job, each reading a different offset into the same list).
-# $THROTTLE is divided across the shards (rounded up) so *total* concurrency across all of
-# them stays close to what was actually asked for/calibrated against, rather than multiplying
-# it by the shard count.
+# Shard into chunks of at most $MAX_ARRAY_SIZE (default 400): Slurm's own MaxArraySize
+# (1001 on this cluster) caps an individual task ID, not just the range size, so a list this
+# long needs more than one array job anyway -- but the real reason it's smaller than that cap
+# is the next one.
 #
-# A second, tighter limit this cluster's `ckpt` QOS also enforces --
+# A second, much tighter limit this cluster's `ckpt` QOS also enforces --
 # MaxSubmitJobsPerUser=500, every PENDING+RUNNING job this user has anywhere, not just this
-# script's -- means even one full-size shard plus whatever else is already queued can hit it.
-# $SUBMIT_BUDGET (default 450, leaving headroom under 500 for other jobs) caps how many of
-# this user's total jobs this invocation will push toward; it submits shards one at a time,
-# stops (without erroring) the moment the next one wouldn't fit, and says how much is left --
-# list_vr_run_ids.py already excludes anything with a `search` row, so just re-running this
-# script once earlier shards have drained picks up exactly the remainder, nothing double
-# -counted (modulo the rare case of resubmitting a run_id whose array task is still in flight
-# but hasn't committed yet -- harmless: `Search.run_id` is unique, so the loser of that race
-# just fails cleanly instead of corrupting anything).
-: "${MAX_ARRAY_SIZE:=1000}"
+# script's -- means an entire shard's tasks sit counted against that budget for as long as any
+# of them are still pending or running, however many are actually executing at once under
+# $THROTTLE. In practice that makes shards activate close to one at a time regardless of how
+# this script's own logic is written, so $THROTTLE is used as-is per shard (not divided down
+# by the shard count) -- dividing it further would just slow down the one shard actually
+# running for no reason. $SUBMIT_BUDGET (default 450, leaving headroom under 500 for other
+# jobs) caps how many of this user's total jobs this invocation will push toward; it submits
+# shards one at a time, stops (without erroring) the moment the next one wouldn't fit, and
+# says how much is left. Expect to re-run this script repeatedly as earlier shards drain --
+# list_vr_run_ids.py already excludes anything with a `search` row, so each re-run only
+# enumerates the actual remainder, nothing double-counted (modulo the rare case of
+# resubmitting a run_id whose array task is still in flight but hasn't committed yet --
+# harmless: `Search.run_id` is unique, so the loser of that race just fails cleanly instead
+# of corrupting anything).
+: "${MAX_ARRAY_SIZE:=400}"
 : "${SUBMIT_BUDGET:=450}"
 n_shards=$(( (n + MAX_ARRAY_SIZE - 1) / MAX_ARRAY_SIZE ))
-per_shard_throttle=$(( (THROTTLE + n_shards - 1) / n_shards ))
-echo "search_backfill_vr.sh: $n run_id(s) in $RUN_ID_LIST, $n_shards array job(s) needed, $per_shard_throttle concurrent each (~$THROTTLE total)" >&2
+echo "search_backfill_vr.sh: $n run_id(s) in $RUN_ID_LIST, $n_shards array job(s) needed, $THROTTLE concurrent per active shard" >&2
 
 offset=0
 while [[ "$offset" -lt "$n" ]]; do
@@ -123,11 +125,11 @@ while [[ "$offset" -lt "$n" ]]; do
     fi
 
     job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" --requeue \
-        --array="1-${chunk}%${per_shard_throttle}" \
+        --array="1-${chunk}%${THROTTLE}" \
         --job-name "search-backfill-vr" \
         --output "$LOG_DIR/search_backfill_vr_%A_%a.out" --open-mode=append \
         --export="ALL,CHUNK_OFFSET=${offset}" \
         "$SCRIPT_PATH")
-    echo "search_backfill_vr.sh: submitted array job $job_id (lines $((offset + 1))-$((offset + chunk)), throttle $per_shard_throttle)" >&2
+    echo "search_backfill_vr.sh: submitted array job $job_id (lines $((offset + 1))-$((offset + chunk)), throttle $THROTTLE)" >&2
     offset=$(( offset + chunk ))
 done
