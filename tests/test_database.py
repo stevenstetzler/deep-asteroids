@@ -42,10 +42,14 @@ def test_get_db_connect_args_only_set_sqlite_busy_timeout_for_sqlite(monkeypatch
     import sqlalchemy
 
     captured = {}
+    real_create_engine = sqlalchemy.create_engine
 
     def spy(url, **kwargs):
         captured["connect_args"] = kwargs.get("connect_args")
-        return object()
+        # A real (if unrelated) Engine, not a bare object(): get_db() also registers a
+        # "connect" event listener on it for WAL mode, which needs something event.listens_for
+        # actually recognizes as a target.
+        return real_create_engine("sqlite:///:memory:")
 
     monkeypatch.setattr(sqlalchemy, "create_engine", spy)
 
