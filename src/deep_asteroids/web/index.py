@@ -96,14 +96,18 @@ def bands_rows(session, night, field, detector_number):
 
 def results_rows(session, run_id):
     """``[(result_num, n, vra, vdec, sigma_v), ...]`` for one run_id, by result_num
-    (find-asteroids' own ranking, best first)."""
+    (find-asteroids' own ranking, best first). ``sigma_v`` is ``None`` unless both
+    ``sigma_vra``/``sigma_vdec`` are set -- a real (if rare: ~80 of ~277k results) full-survey
+    case has exactly one of the two ``None`` (a degenerate single-axis fit), which
+    ``math.hypot()`` can't take."""
     rows = session.execute(
         select(Result.result_num, Result.n, Tracklet.vra, Tracklet.vdec, Tracklet.sigma_vra, Tracklet.sigma_vdec)
         .join(Search, Search.id == Result.search_id).join(Tracklet, Tracklet.result_id == Result.id)
         .where(Search.run_id == run_id).order_by(Result.result_num)
     ).all()
     return [
-        (result_num, n, vra, vdec, math.hypot(sigma_vra, sigma_vdec) if sigma_vra is not None else None)
+        (result_num, n, vra, vdec,
+         math.hypot(sigma_vra, sigma_vdec) if sigma_vra is not None and sigma_vdec is not None else None)
         for result_num, n, vra, vdec, sigma_vra, sigma_vdec in rows
     ]
 

@@ -72,6 +72,21 @@ def test_results_rows_ordered_by_result_num(session, seeded):
     assert all(r[1] == 12 for r in rows)  # n (Hough points)
 
 
+def test_results_rows_handles_one_sided_sigma_v(session):
+    """A real full-survey case (~80 of ~277k results): a degenerate single-axis fit leaves
+    exactly one of sigma_vra/sigma_vdec None. math.hypot() can't take a None, so sigma_v must
+    come back None too rather than crashing (this took down a real `package index` run)."""
+    h.add_definition(session, "run-one-sided")
+    h.add_run(session, "run-one-sided", [
+        {"ra": h.BASE[0], "dec": h.BASE[1], "vra": 0.2, "vdec": 0.05, "sigma_vra": None, "sigma_vdec": 0.0},
+        {"ra": h.BASE[0], "dec": h.BASE[1], "vra": 0.2, "vdec": 0.05, "sigma_vra": 0.0, "sigma_vdec": None},
+    ])
+    session.commit()
+
+    rows = results_rows(session, "run-one-sided")
+    assert [r[4] for r in rows] == [None, None]
+
+
 def test_build_site_index_writes_every_level_and_links_resolve(session, seeded, tmp_path):
     web_dir = tmp_path / "web"
     paths = build_site_index(session, web_dir)
