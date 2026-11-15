@@ -5,7 +5,13 @@ find-asteroids ``search`` row) ``band IS NULL`` search_definition -- "the same s
 ingested results for" -- restricted further to ones whose every exposure already has a
 ``differenceExp`` image ingested.
 
-That second restriction matters because `search run` has no partial-coverage tolerance:
+Also excludes any run_id that already has a `search` row (i.e. already searched) -- makes
+re-running this script after a partial batch naturally return only what's left to do, which
+`search_backfill_vr.sh`'s submitter relies on to stay under Slurm's MaxSubmitJobsPerUser
+across repeated invocations (see its own header comment).
+
+That second restriction (image completeness) matters because `search run` has no
+partial-coverage tolerance:
 `detect_exposures()` (search/detect.py) raises outright if even one of a search definition's
 exposures lacks an image row, rather than skipping it. Checked against the real full-survey
 database (2026-11): 5,572 search definitions are in scope by the first rule, but only 4,261
@@ -36,9 +42,14 @@ def in_scope_vr_run_ids(session):
         .join(Search, Search.run_id == base.run_id)
         .where(SD.band == "VR")
     ).all()
+    already_searched = set(session.scalars(
+        select(Search.run_id).where(Search.run_id.in_([r.run_id for r in in_scope]))
+    ))
 
     run_ids = []
     for sd_id, run_id, n_exposures in in_scope:
+        if run_id in already_searched:
+            continue  # already has a `search` row -- `search run` would just skip it anyway
         n_images = session.scalar(
             select(func.count(func.distinct(SDE.deep_db_detector_exposure_id)))
             .select_from(SDE).join(

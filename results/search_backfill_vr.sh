@@ -93,14 +93,35 @@ fi
 # $THROTTLE is divided across the shards (rounded up) so *total* concurrency across all of
 # them stays close to what was actually asked for/calibrated against, rather than multiplying
 # it by the shard count.
+#
+# A second, tighter limit this cluster's `ckpt` QOS also enforces --
+# MaxSubmitJobsPerUser=500, every PENDING+RUNNING job this user has anywhere, not just this
+# script's -- means even one full-size shard plus whatever else is already queued can hit it.
+# $SUBMIT_BUDGET (default 450, leaving headroom under 500 for other jobs) caps how many of
+# this user's total jobs this invocation will push toward; it submits shards one at a time,
+# stops (without erroring) the moment the next one wouldn't fit, and says how much is left --
+# list_vr_run_ids.py already excludes anything with a `search` row, so just re-running this
+# script once earlier shards have drained picks up exactly the remainder, nothing double
+# -counted (modulo the rare case of resubmitting a run_id whose array task is still in flight
+# but hasn't committed yet -- harmless: `Search.run_id` is unique, so the loser of that race
+# just fails cleanly instead of corrupting anything).
 : "${MAX_ARRAY_SIZE:=1000}"
+: "${SUBMIT_BUDGET:=450}"
 n_shards=$(( (n + MAX_ARRAY_SIZE - 1) / MAX_ARRAY_SIZE ))
 per_shard_throttle=$(( (THROTTLE + n_shards - 1) / n_shards ))
-echo "search_backfill_vr.sh: $n run_id(s) in $RUN_ID_LIST, $n_shards array job(s), $per_shard_throttle concurrent each (~$THROTTLE total)" >&2
+echo "search_backfill_vr.sh: $n run_id(s) in $RUN_ID_LIST, $n_shards array job(s) needed, $per_shard_throttle concurrent each (~$THROTTLE total)" >&2
 
 offset=0
 while [[ "$offset" -lt "$n" ]]; do
     chunk=$(( n - offset < MAX_ARRAY_SIZE ? n - offset : MAX_ARRAY_SIZE ))
+
+    current_jobs=$(squeue -u "$USER" -h | wc -l)
+    if [[ "$((current_jobs + chunk))" -gt "$SUBMIT_BUDGET" ]]; then
+        remaining=$(( n - offset ))
+        echo "search_backfill_vr.sh: stopping -- $current_jobs job(s) already queued, next shard ($chunk tasks) would exceed \$SUBMIT_BUDGET ($SUBMIT_BUDGET). $remaining run_id(s) still left; re-run this script once earlier shards have drained." >&2
+        break
+    fi
+
     job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" --requeue \
         --array="1-${chunk}%${per_shard_throttle}" \
         --job-name "search-backfill-vr" \
