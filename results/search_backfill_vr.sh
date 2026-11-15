@@ -44,8 +44,14 @@
 # requeued or resubmitted task is always either fully done or not started at all, never
 # missing just its SearchRun row the way an interrupted run used to be able to.
 set -euo pipefail
-SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-cd "$(dirname "$SCRIPT_PATH")/.."
+# Slurm copies a submitted script into its own spool directory and runs that copy, so
+# ${BASH_SOURCE[0]} resolves to the spool path on a worker (e.g.
+# /var/spool/slurmd/job<N>/slurm_script), not this file's real location -- confirmed the hard
+# way (a worker's relative-path defaults silently resolved under /var/spool/slurmd and
+# failed). $REPO_ROOT, exported by the submitter below, is how a worker finds its way back; a
+# human running this directly (the submitter case) computes it the normal way instead.
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$REPO_ROOT"
 
 : "${DEEP_ASTEROIDS_DB:?Set DEEP_ASTEROIDS_DB to the full-survey database}"
 : "${DEEP_DB:?Set DEEP_DB to a cached deep-db copy}"
@@ -55,9 +61,14 @@ cd "$(dirname "$SCRIPT_PATH")/.."
 : "${ACCOUNT:=ckpt-astro}"
 : "${TIME:=00:10:00}"
 : "${CATALOG_DIR:=/gscratch/scrubbed/$USER/deep_asteroids/catalogs}"
-: "${LOG_DIR:=$(pwd)/results/logs}"
-: "${RUN_ID_LIST:=$(pwd)/results/vr_run_ids.txt}"
-export DEEP_ASTEROIDS_DB DEEP_DB
+: "${LOG_DIR:=$REPO_ROOT/results/logs}"
+: "${RUN_ID_LIST:=$REPO_ROOT/results/vr_run_ids.txt}"
+: "${SUBMITTED_LIST:=$REPO_ROOT/results/vr_run_ids_submitted.txt}"
+# Only what a worker actually needs -- plain (non-exported) shell variables don't survive
+# into an sbatch job's environment even with --export=ALL, which passes the *process*
+# environment, not this shell's local variables (another one hit the hard way: the worker
+# saw none of these until they were exported here).
+export DEEP_ASTEROIDS_DB DEEP_DB REPO_ROOT RUN_ID_LIST CATALOG_DIR
 
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     # Worker: one array task, one run_id -- line ($CHUNK_OFFSET + $SLURM_ARRAY_TASK_ID) of
@@ -142,7 +153,7 @@ while [[ "$offset" -lt "$n" ]]; do
         --job-name "search-backfill-vr" \
         --output "$LOG_DIR/search_backfill_vr_%A_%a.out" --open-mode=append \
         --export="ALL,CHUNK_OFFSET=${offset}" \
-        "$SCRIPT_PATH")
+        "$REPO_ROOT/results/search_backfill_vr.sh")
     echo "search_backfill_vr.sh: submitted array job $job_id (lines $((offset + 1))-$((offset + chunk)), throttle $THROTTLE)" >&2
     sed -n "$((offset + 1)),$((offset + chunk))p" "$RUN_ID_LIST" >> "$SUBMITTED_LIST"
     offset=$(( offset + chunk ))
