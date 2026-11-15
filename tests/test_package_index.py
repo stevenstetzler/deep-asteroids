@@ -103,13 +103,28 @@ def test_build_site_index_writes_every_level_and_links_resolve(session, seeded, 
     assert "No results ingested yet" in all_results_page
 
 
-def test_build_site_index_always_rewrites(session, seeded, tmp_path):
+def test_build_site_index_corrects_stale_content(session, seeded, tmp_path):
     web_dir = tmp_path / "web"
     build_site_index(session, web_dir)
     page = web_dir / "results" / str(NIGHT_1) / "A0b" / "ccd1" / "VR" / "index.html"
     page.write_text("stale")
     build_site_index(session, web_dir)
     assert page.read_text() != "stale"
+
+
+def test_build_site_index_skips_the_write_when_content_is_unchanged(session, seeded, tmp_path):
+    """A re-run with nothing changed in the database shouldn't touch pages on disk at all --
+    at full-survey scale the write, not the query, is what's slow (see web/index.py's own
+    module docstring), and this is also what makes a re-run after an interruption (e.g. a
+    preempted Slurm job) cheap instead of starting over from a cold file-create for
+    everything."""
+    web_dir = tmp_path / "web"
+    build_site_index(session, web_dir)
+    page = web_dir / "results" / str(NIGHT_1) / "A0b" / "ccd1" / "VR" / "index.html"
+    mtime_before = page.stat().st_mtime_ns
+
+    build_site_index(session, web_dir)
+    assert page.stat().st_mtime_ns == mtime_before
 
 
 def test_cli_package_index(session, seeded, tmp_path):

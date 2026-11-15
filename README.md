@@ -720,9 +720,12 @@ own parameters: `vmin`/`vmax` (`velocity_0`/`velocity_1`), `angle_min`/`angle_ma
 `angle_1`) and `dx`, all from the find-asteroids `search` row itself (blank if unsearched), plus
 `snr` (`search_run`'s own detection threshold -- blank far more often than those, since it needs
 a `search_run` row, which most real searches here don't have). Each of these pages is one cheap
-aggregate query, so
-`package index` always rewrites every page rather than caching/skipping them the way `package
-result` does its (expensive) ones. The results table links to `<result_num>/index.html`
+aggregate query, always recomputed -- but the write itself is skipped if the recomputed content
+is byte-identical to what's already on disk, so a re-run only touches pages whose data actually
+changed (at full-survey scale, tens of thousands of pages, the write -- not the query -- is the
+slow part: a GPFS-metadata-bound file create each, which also makes this the difference between
+a re-run after an interruption taking minutes instead of hours). The results table links to
+`<result_num>/index.html`
 whether or not `package result` has actually rendered that page yet -- the link just won't
 resolve until it has, same as the coverage/search-tracking page from #26 isn't connected into
 this site yet (still open, along with picking out which results are worth surfacing once a
