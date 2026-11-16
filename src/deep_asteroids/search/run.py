@@ -119,7 +119,13 @@ def run_search_for_definition(
     workers=None, force=False, remove_catalogs_after=False,
 ):
     """Detect (any missing catalogs), search and ingest ``search_definition``
-    under its ``run_id``. Returns a ``SearchRunSummary``. Commits.
+    under its ``run_id``. Returns a ``SearchRunSummary``. Commits once, atomically: its
+    ``Search``/``Result``/``Tracklet``/``Gathered`` rows (via ``ingest_results_dir(...,
+    commit=False)``) and its own ``SearchRun`` provenance row land together in one
+    transaction, so a process killed partway through (preemption, OOM, anything) never
+    leaves a run_id with results but no ``SearchRun`` row -- the skip-if-done check below
+    only looks for the ``Search`` row, so that gap used to be permanently invisible (#28's
+    plan).
 
     Skips a run_id that already has a ``search`` row unless ``force``, which
     deletes its rows first. With ``remove_catalogs_after``, deletes this
@@ -167,7 +173,8 @@ def run_search_for_definition(
             "output_format": "ecsv", "refine_iterations": refine_iterations,
         }
         started = time.monotonic()
-        ingested = ingest_results_dir(session, results_dir, run_id, output_format="ecsv", force=force, params=params)
+        ingested = ingest_results_dir(session, results_dir, run_id, output_format="ecsv", force=force, params=params,
+                                      commit=False)
         summary.ingest_seconds = time.monotonic() - started
     summary.n_results = ingested.n_results
 
