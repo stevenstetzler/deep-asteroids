@@ -33,6 +33,8 @@ cd examples
 ./result_ccd41_24.sh   # runs our own search first, so it needs the detect engine built
 NIGHT=20190403 FIELD=A0c DETECTOR=10 RESULT_NUM=3 ./result_ccd41_24.sh   # any other result
 ./package_ccd41_24.sh   # the same result, packaged into ../web/ instead (#27) -- --force to redo it
+./package_backfill.sh   # the full-database batch backfill of every putative-real result (#32); needs a Slurm job
+./package_progress.sh   # rendered/pending counts for that same backfill, per run_id and overall
 ```
 
 Each script is self-contained and idempotent (re-running skips ingest
@@ -61,6 +63,8 @@ lives -- see below.
 | `search_ccd41.sh` | `search run` on band VR, detector 41, then `compare_search.py` against salad's earlier run, plus the refinement's seed-to-seed noise floor | 20190402 / A0b | the reproducibility check for #16. Needs the detect engine built and salad's Postgres (`$RESULTS_DB`) up; `$NIGHT`/`$FIELD`/`$DETECTOR`/`$BAND` select another search. Prints its report (`$REPORT` also saves it to a file) |
 | `crossmatch_ccd41.sh` | `dedup` and `crossmatch` on the seeded band-VR search of detector 41, then `compare_crossmatch.py` against salad's own crossmatch of the same search and a dedup of both runs together | 20190402 / A0b | the test for #21: 3 of the 50 results match known objects, the same 3 salad found; clustering both runs finds each object twice. Needs the detect engine built and salad's Postgres (`$RESULTS_DB`) up |
 | `night_summary.sh` | `statistics`, `summary` and the `plot` commands for the 60 searches of night 20190402 (salad's results, de-duplicated and cross-matched) | 20190402 | the funnel of what the results match and which are putative real, and plots of residuals, magnitudes and completeness, written to `docs/examples/viz/night_20190402/`. Needs salad's Postgres (`$RESULTS_DB`) up |
+| `package_backfill.sh` | every putative-real result in `$DEEP_ASTEROIDS_DB` (#32), not one search | whole database (or one `$NIGHT`) | runs `deep-asteroids package result --run-id <run_id> --putative-real` once per `run_id` with putative-real results, `$SLURM_CPUS_PER_TASK` of them at a time (never `nproc`) -- refuses to run outside a Slurm job. Each result's page is cached (`package result`'s own skip-if-`index.html`-exists), so a resubmitted/interrupted run only renders the gap -- see the main README's "static result site" section |
+| `package_progress.sh` | rendered/pending counts for that same selection | whole database (or one `$NIGHT`) | `deep-asteroids package result --run-id <run_id> --putative-real --dry-run` per `run_id`, summed -- a read-only progress view for watching a `package_backfill.sh` run (or checking on one after the fact), safe to run from a login node |
 
 Each writes `light_curve.png`, `coadd.png`, `movie.gif` and one `<id>.fits`
 cutout per exposure -- see the main README's "Visualizing known objects"

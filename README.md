@@ -628,7 +628,8 @@ result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
 ```bash
 deep-asteroids package result (--run-id R | --night N --field F --detector-number D [--band B]) \
     [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
-    [--annotate TEMPLATE] [--force]
+    [--annotate TEMPLATE] [--force] [--putative-real [--sigma-v-threshold 0.00025]] [--dry-run] \
+    [--movie/--no-movie]
 ```
 
 #27's web-based interface, as a plain static site -- no server, nothing dynamic: one cached page
@@ -649,8 +650,28 @@ curve | movie) that the browser wraps row-to-column on its own as the window nar
 no explicit mobile breakpoint, just a shared `min-width` on every column. Every plot's CSS
 height matches the movie's own rendered height, so they line up regardless of each plot's own
 aspect ratio. Selects search definitions the same way `search run` does; every one of their
-results is packaged unless `--result-num` narrows it. A page that already exists is left alone
-(the cache) unless `--force`.
+results is packaged unless `--result-num` or `--putative-real` narrows it. A page that already
+exists is left alone (the cache) unless `--force`.
+
+`--putative-real` narrows to the results that pass the putative-real cut -- the same
+classification `query results --putative-real` reports (`--sigma-v-threshold` is the same
+threshold too), so the two always agree; needs `statistics`/`crossmatch`/`dedup` already run.
+`--dry-run` reports how many of the selected pages are already rendered vs. still pending,
+without rendering (or needing the vendored cutout engine) at all -- a progress view over the
+same selection, not a separate count. #32's full-database backfill (every putative-real result,
+not just one search) is just this command run once per `run_id`, in parallel across a
+Slurm-sized worker pool: `examples/package_backfill.sh` (an `sbatch` job, never a login node)
+and its progress counterpart `examples/package_progress.sh`. No new tracking table -- a worker
+or the whole job can die partway through and a re-run only (re)does whatever `index.html` is
+still missing, since that check is the only manifest (`index.html` is itself written via a
+same-directory temp file + atomic rename, so a mid-write kill -- e.g. an `sbatch` job preempted
+on a checkpoint partition -- never leaves a truncated file that a later run would mistake for
+"done").
+
+`--no-movie` skips `movie.gif` -- by far the largest artifact (one frame per touched exposure,
+4x upscaled; see #32/#33's storage estimate) -- without affecting the page or the PDF report
+either way; `results/package_backfill_putative_real.sh`'s full-database backfill always passes
+it.
 
 A "Download PDF" button (top right) links to a pre-rendered, one-page
 `<run_id>-result-<result_num>.pdf` written alongside `index.html` (`render_result_pdf()`,
@@ -699,9 +720,12 @@ own parameters: `vmin`/`vmax` (`velocity_0`/`velocity_1`), `angle_min`/`angle_ma
 `angle_1`) and `dx`, all from the find-asteroids `search` row itself (blank if unsearched), plus
 `snr` (`search_run`'s own detection threshold -- blank far more often than those, since it needs
 a `search_run` row, which most real searches here don't have). Each of these pages is one cheap
-aggregate query, so
-`package index` always rewrites every page rather than caching/skipping them the way `package
-result` does its (expensive) ones. The results table links to `<result_num>/index.html`
+aggregate query, always recomputed -- but the write itself is skipped if the recomputed content
+is byte-identical to what's already on disk, so a re-run only touches pages whose data actually
+changed (at full-survey scale, tens of thousands of pages, the write -- not the query -- is the
+slow part: a GPFS-metadata-bound file create each, which also makes this the difference between
+a re-run after an interruption taking minutes instead of hours). The results table links to
+`<result_num>/index.html`
 whether or not `package result` has actually rendered that page yet -- the link just won't
 resolve until it has, same as the coverage/search-tracking page from #26 isn't connected into
 this site yet (still open, along with picking out which results are worth surfacing once a
@@ -711,6 +735,29 @@ search has more than a handful).
 (`web/results/20190402/A0b/ccd41/VR/24/`) end to end against the real registry/repo, the same
 way `examples/result_ccd41_24.sh` reproduces its `viz result` counterpart -- see
 `examples/README.md`.
+
+### Merged PDFs by group
+
+```bash
+deep-asteroids package merge-pdfs [--night N ...] [--group {mpchecker,synthetic,putative-new} ...] \
+    [--web-dir web] [--out-dir web/pdfs] [--sigma-v-threshold 0.00015] [--authoritative-only/--all-results] \
+    [--force]
+```
+
+Merges already-rendered per-result PDFs into one PDF per `(night, group)`, under
+`<out-dir>/<night>/<group>.pdf` -- the three groups `docs/results/magnitudes.png` highlights:
+**mpchecker** (matches a mpchecker ephemeris -- the `KNOWN` group), **synthetic** (matches a
+synthetic/fake object), and **putative-new** (unmatched and passes the putative-real cut -- a
+candidate no known object explains). Kept one merged PDF per night, not one per group across
+the whole survey, to keep file sizes manageable. `--sigma-v-threshold` must match whatever
+`package result --putative-real` actually rendered, or the merge references PDFs that were
+never written (counted and skipped, not an error: see `n_missing_pdf` in the summary line). A
+`(night, group)` with no matching, rendered result is skipped too -- no empty file. Like
+`package result`, caches by output-file existence (`--force` to redo). Needs `statistics`/
+`crossmatch`/`dedup` already run and the individual PDFs this merges already on disk; unlike
+rendering them, merging is cheap (no subprocess engine, just concatenating small PDFs), so this
+runs fine on a login node -- no Slurm job needed. `results/merge_pdfs.sh` wraps it for the
+full-survey database; see `results/README.md`.
 
 ## Known-object tracklets
 

@@ -1,9 +1,11 @@
 # Results
 
 Scripts that run against the full-survey database, not one validation night or a handful of
-known objects (that's what `examples/` demos). `full_survey_summary.sh` (#15) builds that
-database and its funnel/summary plots; `search_backfill_vr.sh` (#28) re-executes the full
-survey's own searches pinned to `band='VR'`.
+known objects (that's what `examples/` demos). Four things live here: `full_survey_summary.sh`
+(#15), which builds that database and its funnel/summary plots; `search_backfill_vr.sh` (#28),
+which re-executes the full survey's own searches pinned to `band='VR'`;
+`package_backfill_putative_real.sh` (#32/#33), which renders PDFs from it; and `merge_pdfs.sh`
+(#32/#33), which merges those PDFs by group.
 
 ## Full-survey ingest and funnel (#15)
 
@@ -54,3 +56,54 @@ time and ~244 core-hours at the defaults. Preemptible/requeue-safe the same way 
 backfill is (`--requeue`, `--open-mode=append`, a restart-count log line per task); #37's
 atomic-commit fix means a requeued or resubmitted task is always either fully done or not
 started at all.
+
+## Batch-rendering putative-real PDFs (#32/#33)
+
+```bash
+cd results
+DEEP_ASTEROIDS_DB=sqlite:////gscratch/<group>/$USER/deep_asteroids_full_survey.sqlite \
+DEEP_DB=/path/to/cached/deep_database.sqlite \
+source /gscratch/dirac/DEEP/data/credentials \
+./package_backfill_putative_real.sh
+```
+
+From a login node (it only submits `sbatch` jobs, does no rendering itself):
+submits one `sbatch` job per night that has at least one putative-real
+result at `sigma_v < 0.00015` (`$SIGMA_V_THRESHOLD` overrides), each
+rendering that night's results (`deep-asteroids package result
+--putative-real --no-movie` -- no movies, to keep storage down: see PR #33)
+across `$CORES` (default 16) workers on `-p ckpt-all -A ckpt-astro`
+(`$PARTITION`/`$ACCOUNT` override -- ckpt is preemptible, cheap, and this
+workload doesn't need a dedicated allocation), plus one final `package
+index` job depending on all of them. See the script's own header comment
+for the full option list, and PR #33 for the runtime/storage estimate
+behind the defaults.
+
+Also preemptible- and requeue-safe: ckpt jobs get killed and automatically
+restarted (`PreemptMode=REQUEUE`, plus `--requeue` passed explicitly) under
+the same job ID, logs preserved across the restart (`--open-mode=append`);
+`package result`'s own skip-if-`index.html`-exists check is the whole
+manifest either way (#32's "no new tracking table"), so a restart,
+requeue, or resubmission only (re)does whatever didn't finish --
+`index.html` itself is written via a temp file + atomic rename, so a
+mid-render kill never leaves a truncated one behind that a later run
+would mistake for "done".
+
+## Merging PDFs by group (#32/#33)
+
+```bash
+cd results
+DEEP_ASTEROIDS_DB=sqlite:////gscratch/<group>/$USER/deep_asteroids_full_survey.sqlite \
+./merge_pdfs.sh
+```
+
+From a login node -- unlike the backfill, this is cheap (concatenating already-rendered PDFs,
+no subprocess engine), so no Slurm job is needed. Merges every night's rendered per-result PDFs
+into one PDF per `(night, group)` under `$WEB_DIR/pdfs/<night>/<group>.pdf` -- **mpchecker**,
+**synthetic**, and **putative-new**, the three groups `docs/results/magnitudes.png` highlights
+(see the main README's "Merged PDFs by group" section for what each means). Kept per-night
+rather than one giant PDF per group across the whole survey, to keep file sizes manageable.
+Extra arguments (e.g. `--night`, `--group`, `--force`) pass straight through to
+`deep-asteroids package merge-pdfs`; run it again after a backfill resumes or finishes more
+nights and it only (re)does `(night, group)` pairs that changed or weren't done yet (same
+cache-by-output-file-existence convention as `package result`).

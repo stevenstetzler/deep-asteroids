@@ -10,8 +10,14 @@ already builds. No server, no JS, no pagination: every level's rows come
 back pre-sorted by a sensible default column (numeric night/detector
 number, lexical field/band, numeric result_num -- find-asteroids' own
 ranking, best first). Unlike the leaf result pages, an index page's cost
-is one aggregate query, so `deep-asteroids package index` always rewrites
-every one of them rather than caching/skipping.
+is one aggregate query -- always recomputed, never skipped -- but the
+write is skipped if that recomputed content is byte-identical to what's
+already on disk (see `_render_table_page()`): at full-survey scale the
+write itself, not the query, is what's slow (a GPFS-metadata-bound
+mkdir+file-create per page), and most of a re-run's pages haven't
+actually changed since the last one, so this makes `package index`
+resumable in practice after an interruption (e.g. a preempted Slurm job)
+even though it has no explicit checkpointing.
 """
 import html
 import math
@@ -90,14 +96,18 @@ def bands_rows(session, night, field, detector_number):
 
 def results_rows(session, run_id):
     """``[(result_num, n, vra, vdec, sigma_v), ...]`` for one run_id, by result_num
-    (find-asteroids' own ranking, best first)."""
+    (find-asteroids' own ranking, best first). ``sigma_v`` is ``None`` unless both
+    ``sigma_vra``/``sigma_vdec`` are set -- a real (if rare: ~80 of ~277k results) full-survey
+    case has exactly one of the two ``None`` (a degenerate single-axis fit), which
+    ``math.hypot()`` can't take."""
     rows = session.execute(
         select(Result.result_num, Result.n, Tracklet.vra, Tracklet.vdec, Tracklet.sigma_vra, Tracklet.sigma_vdec)
         .join(Search, Search.id == Result.search_id).join(Tracklet, Tracklet.result_id == Result.id)
         .where(Search.run_id == run_id).order_by(Result.result_num)
     ).all()
     return [
-        (result_num, n, vra, vdec, math.hypot(sigma_vra, sigma_vdec) if sigma_vra is not None else None)
+        (result_num, n, vra, vdec,
+         math.hypot(sigma_vra, sigma_vdec) if sigma_vra is not None and sigma_vdec is not None else None)
         for result_num, n, vra, vdec, sigma_vra, sigma_vdec in rows
     ]
 
@@ -143,6 +153,16 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message):
 </body>
 </html>
 """
+    # Skip the write if the content hasn't actually changed: at full-survey scale (tens of
+    # thousands of these pages), the write itself -- not the query that built `page` -- is
+    # what's slow (a GPFS-metadata-bound mkdir+file-create per page, see #33's own
+    # investigation). Most restarts (e.g. after a ckpt-partition preemption, which this job
+    # has no other resume mechanism against: unlike package_result(), build_site_index()
+    # always recomputes every page) touch a database that hasn't changed since the last
+    # attempt, so almost every page's content is identical and this turns a cold run into a
+    # cheap read-and-compare pass for everything but what's actually new.
+    if out_path.exists() and out_path.read_text() == page:
+        return out_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(page)
     return out_path
@@ -152,8 +172,11 @@ def build_site_index(session, web_dir):
     """(Re)writes every index page above the leaf: ``web_dir/index.html`` (nights), then
     one page per night (fields), per (night, field) (CCDs), per (night, field,
     detector_number) (bands/searches), and per `search_definition` (results) -- straight
-    from the database, always overwritten (cheap: one aggregate query each). Returns the
-    list of paths written."""
+    from the database. Every page's content is always recomputed (cheap: one aggregate query
+    each), but `_render_table_page()` skips the write itself if nothing actually changed, so
+    a re-run only touches disk for pages whose underlying data is different. Returns every
+    page's path regardless (whether its write was skipped or not) -- the full site, not just
+    what changed this call."""
     web_dir = Path(web_dir)
     paths = []
 
