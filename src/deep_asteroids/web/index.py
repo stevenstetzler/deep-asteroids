@@ -141,14 +141,15 @@ def results_rows(session, run_id):
     ]
 
 
-def _render_table_page(out_path, title, up_href, columns, rows, empty_message, extra_links=None):
-    """Writes a plain HTML page: an optional "up" link, then optional ``extra_links``
-    (``[(label, href), ...]``, e.g. a cross-link to another section), then a table of
-    ``rows`` under ``columns`` headers (or ``empty_message`` if there are none). Each row's
-    first element is ``(label, href)`` for its link cell; the rest are plain values. Returns
-    the path."""
+def _table_html(title, up_href, columns, rows, empty_message, extra_links=None):
+    """The HTML page itself, as a string: an optional "up" link, then optional
+    ``extra_links`` (``[(label, href), ...]``, e.g. a cross-link to another section), then a
+    table of ``rows`` under ``columns`` headers (or ``empty_message`` if there are none).
+    Each row's first element is ``(label, href)`` for its link cell; the rest are plain
+    values. Shared by ``_render_table_page()`` (writes it to the static site) and
+    ``web.server`` (#28's live-query sketch -- returns it straight as a response body, no
+    file written at all)."""
     esc = html.escape
-    out_path = Path(out_path)
 
     if rows:
         header = "".join(f"<th>{esc(c)}</th>" for c in columns)
@@ -164,7 +165,7 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message, e
     up_link = f'  <p><a href="{esc(up_href)}">&uarr; up</a></p>\n' if up_href else ""
     extra = "".join(f'  <p><a href="{esc(href)}">{esc(label)}</a></p>\n' for label, href in (extra_links or []))
 
-    page = f"""<!doctype html>
+    return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -185,14 +186,18 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message, e
 </body>
 </html>
 """
-    # Skip the write if the content hasn't actually changed: at full-survey scale (tens of
-    # thousands of these pages), the write itself -- not the query that built `page` -- is
-    # what's slow (a GPFS-metadata-bound mkdir+file-create per page, see #33's own
-    # investigation). Most restarts (e.g. after a ckpt-partition preemption, which this job
-    # has no other resume mechanism against: unlike package_result(), build_site_index()
-    # always recomputes every page) touch a database that hasn't changed since the last
-    # attempt, so almost every page's content is identical and this turns a cold run into a
-    # cheap read-and-compare pass for everything but what's actually new.
+def _render_table_page(out_path, title, up_href, columns, rows, empty_message, extra_links=None):
+    """Writes ``_table_html()``'s page to ``out_path`` (parents created as needed), skipping
+    the write if the content hasn't actually changed: at full-survey scale (tens of thousands
+    of these pages), the write itself -- not the query that built the page -- is what's slow
+    (a GPFS-metadata-bound mkdir+file-create per page, see #33's own investigation). Most
+    restarts (e.g. after a ckpt-partition preemption, which this job has no other resume
+    mechanism against: unlike package_result(), build_site_index() always recomputes every
+    page) touch a database that hasn't changed since the last attempt, so almost every page's
+    content is identical and this turns a cold run into a cheap read-and-compare pass for
+    everything but what's actually new. Returns the path."""
+    out_path = Path(out_path)
+    page = _table_html(title, up_href, columns, rows, empty_message, extra_links=extra_links)
     if out_path.exists() and out_path.read_text() == page:
         return out_path
     out_path.parent.mkdir(parents=True, exist_ok=True)

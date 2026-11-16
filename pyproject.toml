@@ -38,6 +38,9 @@ dev = [
     "pytest",
     "ruff",
 ]
+serve = [
+    "flask",
+]
 
 [build-system]
 requires = [

@@ -6,4 +6,5 @@ from deep_asteroids.cli.package import *
 from deep_asteroids.cli.plot import *
 from deep_asteroids.cli.query import *
 from deep_asteroids.cli.search import *
+from deep_asteroids.cli.serve import *
 from deep_asteroids.cli.viz import *
