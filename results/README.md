@@ -107,3 +107,15 @@ Extra arguments (e.g. `--night`, `--group`, `--force`) pass straight through to
 `deep-asteroids package merge-pdfs`; run it again after a backfill resumes or finishes more
 nights and it only (re)does `(night, group)` pairs that changed or weren't done yet (same
 cache-by-output-file-existence convention as `package result`).
+
+**Night 20190401 has no merged PDFs at all (#38), and that's correct, not a bug.** It has
+normal amounts of ingested metadata (496 search definitions, 3,050 results, all with
+statistics/dedup/crossmatch already run), but only 149 `Image` rows ingested survey-wide for
+the whole night (vs. ~7,000 for neighboring nights 20190402/20190403) -- `ingest images`
+genuinely found almost no calibrated `differenceExp` products for it in the Butler registry.
+With no images, forced photometry finds nothing to measure at any predicted position, so
+`package result` renders `sky.png` (needs only the DB) but no coadd/light-curve/PDF for any
+result that night, and `merge-pdfs` correctly finds zero rendered PDFs to merge and skips it
+(its own "no empty file" rule, not a new check). If this night's data coverage improves
+upstream, re-running `package_backfill_putative_real.sh`/`merge_pdfs.sh` picks it up with no
+code changes needed.
