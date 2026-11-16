@@ -18,6 +18,7 @@ again skips any page that already exists (its own cache) unless ``--force``.
 """
 import html
 import math
+import os
 from pathlib import Path
 
 from find_asteroids.models import Result, Search, Tracklet
@@ -189,7 +190,14 @@ def render_result_page(sd, run_id, result_num, summary, stats, out_dir, pdf_path
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "index.html"
-    path.write_text(page)
+    # Written via a same-directory temp file + atomic rename, not a plain write_text(): this
+    # file is package_result()'s own "already rendered" cache marker, so a batch job killed
+    # mid-write (e.g. preempted on a Slurm ckpt partition, #32/#33) must never leave a
+    # truncated-but-existing index.html behind -- that would make a later re-run skip a result
+    # that was never actually finished.
+    tmp_path = out_dir / f".index.html.{os.getpid()}.tmp"
+    tmp_path.write_text(page)
+    tmp_path.replace(path)
     return path
 
 
@@ -268,19 +276,21 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
 
 
 def package_result(session, engine, sd, result_num, web_dir, product_type="differenceExp", cutout_size=51,
-                   annotate=None, force=False):
+                   annotate=None, force=False, movie=True):
     """Renders one result's page (its four plots + ``index.html``) under
     ``web_dir``, skipping it if ``index.html`` already exists unless
-    ``force``. Returns ``(skipped: bool, path_or_None)`` -- ``path`` is
-    ``None`` if the result doesn't exist (e.g. it was de-duplicated away
-    or never ingested)."""
+    ``force``. ``movie=False`` skips ``movie.gif`` (by far the largest
+    artifact -- see ``visualize_result()``); the page and PDF are
+    unaffected either way. Returns ``(skipped: bool, path_or_None)`` --
+    ``path`` is ``None`` if the result doesn't exist (e.g. it was
+    de-duplicated away or never ingested)."""
     out_dir = result_dir(web_dir, sd, result_num)
     index_path = out_dir / "index.html"
     if index_path.exists() and not force:
         return True, index_path
 
     summary = visualize_result(session, engine, sd.run_id, result_num, out_dir, product_type=product_type,
-                               cutout_size=cutout_size, annotate=annotate)
+                               cutout_size=cutout_size, annotate=annotate, movie=movie)
     if summary is None:
         return False, None
     stats = _result_stats(session, sd.run_id, result_num)

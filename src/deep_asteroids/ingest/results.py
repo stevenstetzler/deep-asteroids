@@ -144,11 +144,17 @@ def _insert_children(session, model, rows):
         session.execute(insert(model), rows[i:i + BATCH_SIZE])
 
 
-def ingest_results_dir(session, results_dir, run_id, output_format="ecsv", force=False, params=None):
+def ingest_results_dir(session, results_dir, run_id, output_format="ecsv", force=False, params=None, commit=True):
     """Ingest one ``run_search()`` results directory as ``run_id``.
     ``params`` (``Search`` column values) fills in the ``search`` row; the
     run's own ``results_dir`` and ``output_format`` are recorded unless
-    overridden. Returns a ``ResultsSummary``. Commits."""
+    overridden. Returns a ``ResultsSummary``. Commits unless ``commit=False`` --
+    ``run_search_for_definition()`` passes that so its own ``SearchRun`` provenance row lands
+    in the *same* transaction as this call's ``Search``/``Result``/... rows: a run_id is then
+    either fully done or not started at all, never missing just its ``SearchRun`` row because
+    something was killed between two separate commits (that gap used to exist here, and
+    nothing re-detects it -- the idempotency check only looks for the ``Search`` row -- see
+    #28's plan)."""
     from find_asteroids.results import read_results
 
     results_dir = Path(results_dir)
@@ -157,7 +163,8 @@ def ingest_results_dir(session, results_dir, run_id, output_format="ecsv", force
     summary = ResultsSummary()
     todo, summary.skipped_run_ids = _claim_run_ids(session, [run_id], force)
     if not todo:
-        session.commit()
+        if commit:
+            session.commit()
         return summary
 
     search_columns = _model_columns(Search) - {"run_id"}
@@ -185,7 +192,8 @@ def ingest_results_dir(session, results_dir, run_id, output_format="ecsv", force
         setattr(summary, f"n_{'tracklets' if name == 'tracklet' else name}", len(batch))
     summary.run_ids = [run_id]
     _note_unmatched(session, summary)
-    session.commit()
+    if commit:
+        session.commit()
     return summary
 
 

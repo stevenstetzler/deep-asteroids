@@ -66,6 +66,20 @@ def test_package_result_renders_and_caches(session, definition, result_num, tmp_
     assert not forced_skipped and forced_path == path
 
 
+def test_package_result_no_movie_skips_the_largest_artifact(session, definition, result_num, tmp_path):
+    """movie=False (#32/#33's storage-saving flag): no movie.gif, but the page, the other
+    three plots and the PDF are all unaffected."""
+    skipped, path = package_result(session, h.FakeCutoutEngine(), definition, result_num, tmp_path, movie=False)
+    assert not skipped and path is not None
+    page = path.read_text()
+    assert "movie.gif" not in page and not (path.parent / "movie.gif").exists()
+    for img in ("light_curve.png", "coadd.png", "sky.png"):
+        assert img in page and (path.parent / img).exists()
+
+    pdf = path.parent / f"{h.RUN_ID}-result-{result_num}.pdf"
+    assert pdf.exists() and pdf.stat().st_size > 0 and "Download PDF" in page
+
+
 def test_render_result_pdf_needs_sky_coadd_light_curve(session, definition, result_num, tmp_path):
     from deep_asteroids.viz.result import visualize_result
 
@@ -129,6 +143,67 @@ def test_cli_package_result(session, definition, result_num, tmp_path, monkeypat
         "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--result-num", "999",
     ])
     assert "1 missing" in narrowed.output
+
+
+def test_cli_package_result_no_movie(session, definition, result_num, tmp_path, monkeypatch, runner):
+    monkeypatch.setattr("deep_asteroids.util.cutout.LSSTCutoutPhotometry", h.FakeCutoutEngine)
+    web_dir = tmp_path / "web"
+    result = runner.invoke(main, [
+        "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--no-movie",
+    ])
+    assert result.exit_code == 0, result.output
+    page = web_dir / "results" / "20190403" / "T1" / "ccd1" / "all" / str(result_num) / "index.html"
+    assert page.exists() and "movie.gif" not in page.read_text()
+    assert not (page.parent / "movie.gif").exists()
+
+
+def test_cli_package_result_putative_real_and_dry_run(session, definition, result_num, tmp_path, monkeypatch, runner):
+    """--putative-real narrows the selection to the same results `query results
+    --putative-real` would report (#32); --dry-run reports rendered/pending counts for
+    that selection without rendering anything."""
+    from find_asteroids.models import Result, Search, Tracklet
+    from sqlalchemy import select
+
+    from deep_asteroids.crossmatch.statistics import compute_result_statistics
+
+    monkeypatch.setattr("deep_asteroids.util.cutout.LSSTCutoutPhotometry", h.FakeCutoutEngine)
+    web_dir = tmp_path / "web"
+
+    search_id = session.scalar(select(Search.id).where(Search.run_id == h.RUN_ID))
+    real_tracklet = session.scalars(
+        select(Tracklet).join(Result, Result.id == Tracklet.result_id)
+        .where(Result.search_id == search_id, Result.result_num == result_num)).one()
+
+    noisy = Result(search_id=search_id, result_num=500, n=5, n1=0, n2=0, n5=0, n10=0, extra={})
+    session.add(noisy)
+    session.flush()
+    session.add(Tracklet(
+        result_id=noisy.id, vra=real_tracklet.vra, vdec=real_tracklet.vdec, ra_0=real_tracklet.ra_0,
+        dec_0=real_tracklet.dec_0, tref=real_tracklet.tref, tmin=real_tracklet.tmin, tmax=real_tracklet.tmax,
+        sigma_vra=1.0, sigma_vdec=1.0, extra={}))  # sigma_v far over the putative-real cut
+    session.commit()
+
+    stats = runner.invoke(main, ["statistics"])
+    assert stats.exit_code == 0, stats.output
+
+    dry = runner.invoke(main, [
+        "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--putative-real", "--dry-run",
+    ])
+    assert dry.exit_code == 0, dry.output
+    assert "0 already rendered, 1 pending" in dry.output  # only result_num, not the noisy one
+
+    real = runner.invoke(main, [
+        "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--putative-real",
+    ])
+    assert real.exit_code == 0, real.output
+    assert "1 page(s) rendered, 0 already present, 0 missing" in real.output
+    assert (web_dir / "results" / "20190403" / "T1" / "ccd1" / "all" / str(result_num) / "index.html").exists()
+    assert not (web_dir / "results" / "20190403" / "T1" / "ccd1" / "all" / "500").exists()
+
+    again_dry = runner.invoke(main, [
+        "package", "result", "--run-id", h.RUN_ID, "--web-dir", str(web_dir), "--putative-real", "--dry-run",
+    ])
+    assert "1 already rendered, 0 pending" in again_dry.output
 
 
 def test_cli_package_result_needs_a_selection(runner, session):
