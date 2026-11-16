@@ -33,6 +33,71 @@ def test_create_db_force_recreates(db_url):
         assert conn.execute(text("SELECT count(*) FROM search")).scalar() == 0
 
 
+def test_get_db_connect_args_only_set_sqlite_busy_timeout_for_sqlite(monkeypatch):
+    """#28/#32/#33: a SQLite writer with no busy timeout fails instantly with 'database is
+    locked' instead of waiting -- exactly what broke concurrent `ingest images` calls during
+    the PDF backfill. Only SQLite takes this `connect_args`; a non-SQLite backend gets none.
+    `create_engine` itself is stubbed out (never actually connects) so this doesn't need a
+    real, driver-reachable Postgres server -- just checks what deep-asteroids would ask for."""
+    import sqlalchemy
+
+    captured = {}
+    real_create_engine = sqlalchemy.create_engine
+
+    def spy(url, **kwargs):
+        captured["connect_args"] = kwargs.get("connect_args")
+        # A real (if unrelated) Engine, not a bare object(): get_db() also registers a
+        # "connect" event listener on it for WAL mode, which needs something event.listens_for
+        # actually recognizes as a target.
+        return real_create_engine("sqlite:///:memory:")
+
+    monkeypatch.setattr(sqlalchemy, "create_engine", spy)
+
+    # `_engines.clear()`, not `dispose_engines()`: `spy()` returns a plain `object()`, not a
+    # real engine, so `dispose_engines()` (which calls `.dispose()` on everything cached)
+    # would itself crash on it.
+    monkeypatch.setenv("DEEP_ASTEROIDS_DB", "sqlite:///:memory:")
+    database._engines.clear()
+    database.get_db()
+    assert captured["connect_args"] == {"timeout": database.SQLITE_BUSY_TIMEOUT_SECONDS}
+
+    monkeypatch.setenv("DEEP_ASTEROIDS_DB", "postgresql://user@localhost/db")
+    database._engines.clear()
+    database.get_db()
+    assert captured["connect_args"] == {}
+    database._engines.clear()
+
+
+def test_get_db_sqlite_busy_timeout_lets_a_second_writer_wait(db_url, monkeypatch):
+    """Behavioral check, not just a wiring check: with the busy timeout in place, a writer
+    that finds the database locked waits for it (and succeeds) instead of raising
+    `sqlite3.OperationalError: database is locked` immediately."""
+    import sqlite3
+    import threading
+    import time
+
+    monkeypatch.setattr(database, "SQLITE_BUSY_TIMEOUT_SECONDS", 5)
+    database.dispose_engines()
+    engine = database.create_db()
+
+    path = db_url.removeprefix("sqlite:///")
+    holder = sqlite3.connect(path, timeout=0, check_same_thread=False)
+    holder.execute("BEGIN EXCLUSIVE")
+
+    def release_after(delay):
+        time.sleep(delay)
+        holder.commit()
+        holder.close()
+
+    threading.Thread(target=release_after, args=(0.3,)).start()
+
+    started = time.monotonic()
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO search (run_id) VALUES ('x')"))
+    elapsed = time.monotonic() - started
+    assert elapsed >= 0.25  # actually waited out the lock instead of failing instantly
+
+
 def test_sqlite_readonly_url_is_read_only_and_immutable(deep_db_path):
     url = sqlite_readonly_url(deep_db_path)
     assert url.startswith("sqlite:///file:/")

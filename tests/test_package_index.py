@@ -90,6 +90,21 @@ def test_search_coverage_rows_ordered_by_n_exposures_desc(session, seeded):
     assert by_run_id["run-other-night"][7] is True and by_run_id["run-other-night"][8] == 1
 
 
+def test_results_rows_handles_one_sided_sigma_v(session):
+    """A real full-survey case (~80 of ~277k results): a degenerate single-axis fit leaves
+    exactly one of sigma_vra/sigma_vdec None. math.hypot() can't take a None, so sigma_v must
+    come back None too rather than crashing (this took down a real `package index` run)."""
+    h.add_definition(session, "run-one-sided")
+    h.add_run(session, "run-one-sided", [
+        {"ra": h.BASE[0], "dec": h.BASE[1], "vra": 0.2, "vdec": 0.05, "sigma_vra": None, "sigma_vdec": 0.0},
+        {"ra": h.BASE[0], "dec": h.BASE[1], "vra": 0.2, "vdec": 0.05, "sigma_vra": 0.0, "sigma_vdec": None},
+    ])
+    session.commit()
+
+    rows = results_rows(session, "run-one-sided")
+    assert [r[4] for r in rows] == [None, None]
+
+
 def test_build_site_index_writes_every_level_and_links_resolve(session, seeded, tmp_path):
     web_dir = tmp_path / "web"
     paths = build_site_index(session, web_dir)
@@ -127,13 +142,28 @@ def test_build_site_index_writes_every_level_and_links_resolve(session, seeded, 
     assert "No results ingested yet" in all_results_page
 
 
-def test_build_site_index_always_rewrites(session, seeded, tmp_path):
+def test_build_site_index_corrects_stale_content(session, seeded, tmp_path):
     web_dir = tmp_path / "web"
     build_site_index(session, web_dir)
     page = web_dir / "results" / str(NIGHT_1) / "A0b" / "ccd1" / "VR" / "index.html"
     page.write_text("stale")
     build_site_index(session, web_dir)
     assert page.read_text() != "stale"
+
+
+def test_build_site_index_skips_the_write_when_content_is_unchanged(session, seeded, tmp_path):
+    """A re-run with nothing changed in the database shouldn't touch pages on disk at all --
+    at full-survey scale the write, not the query, is what's slow (see web/index.py's own
+    module docstring), and this is also what makes a re-run after an interruption (e.g. a
+    preempted Slurm job) cheap instead of starting over from a cold file-create for
+    everything."""
+    web_dir = tmp_path / "web"
+    build_site_index(session, web_dir)
+    page = web_dir / "results" / str(NIGHT_1) / "A0b" / "ccd1" / "VR" / "index.html"
+    mtime_before = page.stat().st_mtime_ns
+
+    build_site_index(session, web_dir)
+    assert page.stat().st_mtime_ns == mtime_before
 
 
 def test_cli_package_index(session, seeded, tmp_path):

@@ -23,6 +23,7 @@ from pathlib import Path
 DB_NAME = "deep_asteroids.sqlite"
 DB_ENV = "DEEP_ASTEROIDS_DB"
 DEEP_DB_ENV = "DEEP_DB"
+SQLITE_BUSY_TIMEOUT_SECONDS = 120
 
 _engines = {}
 
@@ -36,8 +37,26 @@ def get_db_url():
 
 
 def get_db(echo=False):
-    """A (cached, per-URL) engine for the deep-asteroids database."""
-    from sqlalchemy import create_engine
+    """A (cached, per-URL) engine for the deep-asteroids database. A SQLite target gets a
+    ``SQLITE_BUSY_TIMEOUT_SECONDS`` busy timeout (``sqlite3``'s own ``timeout=``, via
+    ``connect_args``): by default a second writer that finds the database locked fails
+    instantly with ``sqlite3.OperationalError: database is locked`` rather than waiting --
+    exactly what broke concurrent ``ingest images`` calls during #32/#33's PDF backfill, and
+    what #28's batch re-execution of `search run` would hit the same way without this (each
+    run's own result-ingest commit is a write, same as that backfill's image ingest was).
+    With the timeout set, a handful of concurrent writers queue and succeed instead of
+    erroring, as long as no single commit takes anywhere near that long.
+
+    Also switches a SQLite target to WAL journal mode (``PRAGMA journal_mode=WAL``, set once
+    per connection -- idempotent, and persists in the file itself once set). The default
+    rollback-journal mode lets a long-running *reader* block a writer outright, no busy
+    timeout involved at all -- hit this for real: #28's batch alongside a long `package index`
+    read pass against the same database kept failing with "database is locked" even with the
+    busy timeout in place, because the index pass's read transaction could run for minutes,
+    longer than any reasonable timeout. WAL lets readers and writers proceed concurrently
+    instead."""
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.engine import make_url
 
     url = get_db_url()
     key = (url, echo)
@@ -46,7 +65,14 @@ def get_db(echo=False):
             from deep_db.database import ensure_echo_to_stderr
 
             ensure_echo_to_stderr()
-        _engines[key] = create_engine(url, echo=echo)
+        is_sqlite = make_url(url).get_backend_name() == "sqlite"
+        connect_args = {"timeout": SQLITE_BUSY_TIMEOUT_SECONDS} if is_sqlite else {}
+        engine = create_engine(url, echo=echo, connect_args=connect_args)
+        if is_sqlite:
+            @event.listens_for(engine, "connect")
+            def _set_wal(dbapi_connection, connection_record):
+                dbapi_connection.execute("PRAGMA journal_mode=WAL")
+        _engines[key] = engine
     return _engines[key]
 
 
