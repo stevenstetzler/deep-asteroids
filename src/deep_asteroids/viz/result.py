@@ -229,9 +229,12 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     ra1_am, dec1_am = arcmin(ra1, dec1)
     # zorder above the scatter's (2), and translucent: the arrow is context drawn over the
     # detections, not something the detections should be hidden underneath (#38 follow-up --
-    # this replaces the earlier opaque-arrow-plus-per-exposure-x-marker treatment)
-    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.3, linewidth=3,
-                                 arrowstyle="-|>", mutation_scale=20, zorder=3,
+    # this replaces the earlier opaque-arrow-plus-per-exposure-x-marker treatment).
+    # shrinkA/shrinkB=0: FancyArrowPatch's own default (2pt each) pulls both ends in from the
+    # given points, so the tip visibly stopped short of the actual last detection -- 0 makes
+    # it touch tmin/tmax exactly.
+    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.3, linewidth=6,
+                                 arrowstyle="-|>", mutation_scale=20, zorder=3, shrinkA=0, shrinkB=0,
                                  label="predicted (tracklet)"))
 
     xs, ys = [ra_am, [ra0_am], [ra1_am]], [dec_am, [dec0_am], [dec1_am]]
@@ -239,8 +242,9 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
         mra0_am, mdec0_am = arcmin(matched_track[0], matched_track[1])
         mra1_am, mdec1_am = arcmin(matched_track[2], matched_track[3])
         ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1", alpha=0.3,
-                                     linewidth=3, arrowstyle="-|>", mutation_scale=20, zorder=3,
-                                     linestyle="--", label=f"matched {matched.source} track"))
+                                     linewidth=6, arrowstyle="-|>", mutation_scale=20, zorder=3,
+                                     shrinkA=0, shrinkB=0, linestyle="--",
+                                     label=f"matched {matched.source} track"))
         xs.append([mra0_am, mra1_am])
         ys.append([mdec0_am, mdec1_am])
 
