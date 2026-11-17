@@ -64,6 +64,13 @@ _PDF_COADD_SIZE_IN = 3.25
 _PDF_SKY_LIGHT_CURVE_GAP_IN = 0.9
 _PDF_SKY_WIDTH_IN = 5.0 - _PDF_SKY_LIGHT_CURVE_GAP_IN / 2
 _PDF_LIGHT_CURVE_WIDTH_IN = 5.0 - _PDF_SKY_LIGHT_CURVE_GAP_IN / 2
+# the sky plot's own y-tick labels (e.g. "-13.822") plus its "Dec (deg)" ylabel, both outside
+# (left of) its axes spine, need more room than _PDF_PADDING_IN leaves at the page's left
+# edge -- confirmed by reading the rendered PDF's own text: "Dec (deg)" was landing at a
+# negative x and matplotlib was silently clipping it off the page entirely, with nothing
+# wrong-looking to notice short of reading the extracted text. This reserves it extra left
+# margin (stolen from its own width, not the light-curve panel's).
+_PDF_SKY_LEFT_MARGIN_IN = 0.35
 # the seen/unseen coadd pair (#38), stacked in the gap between the summary and the coadd
 _PDF_SMALL_COADD_WIDTH_IN = _PDF_CONTENT_WIDTH_IN - _PDF_SUMMARY_WIDTH_IN - _PDF_COADD_SIZE_IN  # 1.75in
 _PDF_SMALL_COADD_HEIGHT_IN = _PDF_ROW_HEIGHT_IN / 2  # 1.625in
@@ -304,7 +311,8 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
                           transform=small_ax.transAxes)
 
     bottom_row_y = _PDF_TITLE_HEIGHT_IN + _PDF_ROW_HEIGHT_IN
-    sky_ax = padded_box(0, bottom_row_y, _PDF_SKY_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
+    sky_ax = padded_box(_PDF_SKY_LEFT_MARGIN_IN, bottom_row_y,
+                        _PDF_SKY_WIDTH_IN - _PDF_SKY_LEFT_MARGIN_IN, _PDF_ROW_HEIGHT_IN)
     tracklet, gathered, exposure_times, matched = summary.sky_plot_data
     render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=sky_ax, title=False,
                     matched=matched)
