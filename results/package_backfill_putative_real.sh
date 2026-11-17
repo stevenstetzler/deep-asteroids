@@ -47,8 +47,11 @@
 # account name is ckpt-<group>, not <group>-ckpt; check with
 # `sacctmgr show assoc where user=$USER` if unsure), $TIME (default
 # 6:00:00, per-job wall time; the busiest night rendered in our estimate
-# is ~4.2h at 16 cores -- see PR #33), $WEB_DIR (default ../web) and
-# $LOG_DIR (default ./logs) all override.
+# is ~4.2h at 16 cores -- see PR #33), $WEB_DIR (default ../web),
+# $LOG_DIR (default ./logs) and $FORCE (unset by default; set to
+# anything to pass `--force` through to every `package result` call,
+# re-rendering pages that already exist -- e.g. after a viz/plot change,
+# #38) all override.
 #
 # ckpt-all/ckpt-astro is preemptible -- a preempted job is automatically
 # requeued by Slurm (PreemptMode=REQUEUE on this partition; `--requeue` is
@@ -79,7 +82,8 @@ cd "$(dirname "$SCRIPT_PATH")/.."
 : "${TIME:=6:00:00}"
 : "${WEB_DIR:=$(pwd)/web}"
 : "${LOG_DIR:=$(pwd)/results/logs}"
-export DEEP_ASTEROIDS_DB DEEP_DB SIGMA_V_THRESHOLD CORES WEB_DIR
+: "${FORCE:=}"
+export DEEP_ASTEROIDS_DB DEEP_DB SIGMA_V_THRESHOLD CORES WEB_DIR FORCE
 
 nights_with_putative_real() {
     # All nights with >0 putative-real results, one per line. `|| true` on the inner query:
@@ -142,7 +146,7 @@ if [[ -n "${NIGHT:-}" ]]; then
     if [[ "$n_run_ids" -gt 0 ]]; then
         xargs -P "$workers" -I{} \
             deep-asteroids package result --run-id {} --putative-real --no-movie \
-                --sigma-v-threshold "$SIGMA_V_THRESHOLD" --web-dir "$WEB_DIR" <<< "$run_ids"
+                --sigma-v-threshold "$SIGMA_V_THRESHOLD" --web-dir "$WEB_DIR" ${FORCE:+--force} <<< "$run_ids"
     fi
     echo "package_backfill_putative_real.sh: night $NIGHT done" >&2
     exit 0
