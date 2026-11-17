@@ -56,8 +56,14 @@ _PDF_ROW_HEIGHT_IN = 3.25
 _PDF_SUMMARY_WIDTH_IN = 5.0
 _PDF_PADDING_IN = 0.25  # inset on every side of the summary panel and each image box
 _PDF_COADD_SIZE_IN = 3.25
-_PDF_SKY_WIDTH_IN = 5.0
-_PDF_LIGHT_CURVE_WIDTH_IN = 5.0
+# the sky plot's colorbar (and its rotated label) sits right at its panel's own right edge,
+# with nothing to its right in the standalone sky.png -- but here the light-curve panel's
+# ylabel used to be immediately adjacent with no margin to spare, and the two overlapped. An
+# explicit extra gap (on top of each panel's own _PDF_PADDING_IN inset) fixes that with room
+# to spare, even though render_sky_plot() also tightened the colorbar itself.
+_PDF_SKY_LIGHT_CURVE_GAP_IN = 0.9
+_PDF_SKY_WIDTH_IN = 5.0 - _PDF_SKY_LIGHT_CURVE_GAP_IN / 2
+_PDF_LIGHT_CURVE_WIDTH_IN = 5.0 - _PDF_SKY_LIGHT_CURVE_GAP_IN / 2
 # the seen/unseen coadd pair (#38), stacked in the gap between the summary and the coadd
 _PDF_SMALL_COADD_WIDTH_IN = _PDF_CONTENT_WIDTH_IN - _PDF_SUMMARY_WIDTH_IN - _PDF_COADD_SIZE_IN  # 1.75in
 _PDF_SMALL_COADD_HEIGHT_IN = _PDF_ROW_HEIGHT_IN / 2  # 1.625in
@@ -303,7 +309,8 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
     render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=sky_ax, title=False,
                     matched=matched)
 
-    light_curve_ax = padded_box(_PDF_SKY_WIDTH_IN, bottom_row_y, _PDF_LIGHT_CURVE_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
+    light_curve_ax = padded_box(_PDF_SKY_WIDTH_IN + _PDF_SKY_LIGHT_CURVE_GAP_IN, bottom_row_y,
+                                _PDF_LIGHT_CURVE_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
     render_light_curve_plot(summary, out_dir, ax=light_curve_ax, title=False)
 
     out_dir.mkdir(parents=True, exist_ok=True)

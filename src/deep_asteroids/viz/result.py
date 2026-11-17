@@ -185,7 +185,14 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     ra, dec, time = (np.array(c) for c in zip(*gathered))
     t0 = float(time.min())
     sc = ax.scatter(ra, dec, c=time - t0, cmap="viridis", label="observed (gathered)", zorder=2)
-    ax.figure.colorbar(sc, ax=ax).set_label(f"time since {t0:.5f} MJD TAI (day)")
+    # fraction/pad tighter than matplotlib's own defaults (0.15/0.05): those default to eating
+    # a chunk of whatever's to the right of a manually-placed Axes (e.g. the PDF report's
+    # light-curve panel, immediately to this one's right with no room to spare), overlapping
+    # its "mag" ylabel with this colorbar's own rotated label text. A compact one still reads
+    # fine in the standalone sky.png (ax=None, no neighbor) too.
+    cbar = ax.figure.colorbar(sc, ax=ax, fraction=0.05, pad=0.02)
+    cbar.set_label(f"time since {t0:.5f} MJD TAI (day)", fontsize=9)
+    cbar.ax.tick_params(labelsize=8)
 
     tmin, tmax = min([*exposure_times, time.min()]), max([*exposure_times, time.max()])
     (ra0, dec0), (ra1, dec1) = predict(tracklet, tmin), predict(tracklet, tmax)
