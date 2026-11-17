@@ -184,6 +184,7 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
+    from matplotlib.lines import Line2D
     from matplotlib.patches import FancyArrowPatch
 
     fig = None
@@ -233,9 +234,12 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     # shrinkA/shrinkB=0: FancyArrowPatch's own default (2pt each) pulls both ends in from the
     # given points, so the tip visibly stopped short of the actual last detection -- 0 makes
     # it touch tmin/tmax exactly.
+    # No `label=` here: a legend handle auto-built from this patch would inherit its own
+    # linewidth (16) and visibly overflow the legend's own handle box. A separate, thin
+    # Line2D proxy below (same color/alpha/linestyle) stands in for it in the legend instead.
     ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.35, linewidth=16,
-                                 arrowstyle="-|>", mutation_scale=20, zorder=3, shrinkA=0, shrinkB=0,
-                                 label="predicted (tracklet)"))
+                                 arrowstyle="-|>", mutation_scale=20, zorder=3, shrinkA=0, shrinkB=0))
+    legend_handles = [sc, Line2D([0], [0], color="C0", alpha=0.35, linewidth=3, label="predicted (tracklet)")]
 
     xs, ys = [ra_am, [ra0_am], [ra1_am]], [dec_am, [dec0_am], [dec1_am]]
     if matched_track is not None:
@@ -243,7 +247,8 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
         mra1_am, mdec1_am = arcmin(matched_track[2], matched_track[3])
         ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1", alpha=0.35,
                                      linewidth=16, arrowstyle="-|>", mutation_scale=20, zorder=3,
-                                     shrinkA=0, shrinkB=0, linestyle="--",
+                                     shrinkA=0, shrinkB=0, linestyle="--"))
+        legend_handles.append(Line2D([0], [0], color="C1", alpha=0.35, linewidth=3, linestyle="--",
                                      label=f"matched {matched.source} track"))
         xs.append([mra0_am, mra1_am])
         ys.append([mdec0_am, mdec1_am])
@@ -257,7 +262,7 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     ax.grid(True, alpha=0.3)
     if title:
         ax.set_title(f"{run_id} #{result_num}: sky")
-    ax.legend(loc="best")
+    ax.legend(handles=legend_handles, loc="best")
 
     if fig is None:
         return None
