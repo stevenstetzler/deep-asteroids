@@ -155,13 +155,14 @@ def measure_result(session, engine, sd, tracklet, exposures, gathered=(), produc
 def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=None, fmt="png",
                     title=True, matched=None):
     """The result's gathered (observed) detections colored by time, with
-    its tracklet's predicted track as an arrow over the searched time
-    span and an x at the predicted position in every exposure (salad's
-    sky plot, ``salad/viz.py::render_sky_plot``). By default creates and
-    saves its own figure (``sky.<fmt>``), returning its path -- or
-    ``None`` if there's nothing gathered to plot, or (with ``ax`` given)
-    nothing was drawn. With ``ax`` given, draws directly onto it instead
-    (the caller owns saving) and always returns ``None`` -- see
+    its tracklet's predicted track as a translucent arrow over the
+    searched time span, drawn on top of the detections (not a salad-style
+    opaque arrow underneath plus an x marking the predicted position in
+    every exposure -- the detections are the point, the arrow is context).
+    By default creates and saves its own figure (``sky.<fmt>``), returning
+    its path -- or ``None`` if there's nothing gathered to plot, or (with
+    ``ax`` given) nothing was drawn. With ``ax`` given, draws directly onto
+    it instead (the caller owns saving) and always returns ``None`` -- see
     ``viz/tracklet.py``'s ``render_light_curve_plot()``. ``title=False``
     skips the axes title.
 
@@ -193,7 +194,6 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
 
     tmin, tmax = min([*exposure_times, time.min()]), max([*exposure_times, time.max()])
     (ra0, dec0), (ra1, dec1) = predict(tracklet, tmin), predict(tracklet, tmax)
-    pred = np.array([predict(tracklet, tt) for tt in exposure_times]) if exposure_times else np.empty((0, 2))
 
     matched_track = None
     if matched is not None:
@@ -204,9 +204,11 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
         matched_track = (float(mra0), float(mdec0), float(mra1), float(mdec1))
 
     # the arcmin-offset reference point: this plot's own minimum RA/Dec (in degrees), over
-    # every point that will actually be drawn
-    all_ra = np.r_[ra, pred[:, 0], [ra0, ra1], ([matched_track[0], matched_track[2]] if matched_track else [])]
-    all_dec = np.r_[dec, pred[:, 1], [dec0, dec1], ([matched_track[1], matched_track[3]] if matched_track else [])]
+    # every point that will actually be drawn. The predicted track is linear, so its two
+    # endpoints (ra0/dec0, ra1/dec1) already bound its full extent -- no need for every
+    # per-exposure point along it.
+    all_ra = np.r_[ra, [ra0, ra1], ([matched_track[0], matched_track[2]] if matched_track else [])]
+    all_dec = np.r_[dec, [dec0, dec1], ([matched_track[1], matched_track[3]] if matched_track else [])]
     ra_min, dec_min = float(all_ra.min()), float(all_dec.min())
 
     def arcmin(ra_deg, dec_deg):
@@ -225,19 +227,19 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
 
     ra0_am, dec0_am = arcmin(ra0, dec0)
     ra1_am, dec1_am = arcmin(ra1, dec1)
-    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.6, linewidth=3,
-                                 arrowstyle="-|>", mutation_scale=20, zorder=1))
-    pred_am = np.column_stack(arcmin(pred[:, 0], pred[:, 1])) if len(pred) else np.empty((0, 2))
-    if len(pred_am):
-        ax.plot(pred_am[:, 0], pred_am[:, 1], "x", color="C3", markersize=5,
-               label="predicted (tracklet), per exposure", zorder=3)
+    # zorder above the scatter's (2), and translucent: the arrow is context drawn over the
+    # detections, not something the detections should be hidden underneath (#38 follow-up --
+    # this replaces the earlier opaque-arrow-plus-per-exposure-x-marker treatment)
+    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.3, linewidth=3,
+                                 arrowstyle="-|>", mutation_scale=20, zorder=3,
+                                 label="predicted (tracklet)"))
 
-    xs, ys = [ra_am, pred_am[:, 0], [ra0_am], [ra1_am]], [dec_am, pred_am[:, 1], [dec0_am], [dec1_am]]
+    xs, ys = [ra_am, [ra0_am], [ra1_am]], [dec_am, [dec0_am], [dec1_am]]
     if matched_track is not None:
         mra0_am, mdec0_am = arcmin(matched_track[0], matched_track[1])
         mra1_am, mdec1_am = arcmin(matched_track[2], matched_track[3])
-        ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1",
-                                     alpha=0.6, linewidth=3, arrowstyle="-|>", mutation_scale=20, zorder=1,
+        ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1", alpha=0.3,
+                                     linewidth=3, arrowstyle="-|>", mutation_scale=20, zorder=3,
                                      linestyle="--", label=f"matched {matched.source} track"))
         xs.append([mra0_am, mra1_am])
         ys.append([mdec0_am, mdec1_am])
