@@ -140,6 +140,32 @@ def test_render_sky_plot_draws_a_matched_trajectory(session, definition, result_
     assert path.stat().st_size != without_match.stat().st_size
 
 
+def test_render_sky_plot_grid_and_arcmin_offset_axes(session, definition, result_num, tmp_path):
+    """Grid on, and RA/Dec in arcmin offset from this plot's own minimum (in degrees) -- a
+    plain linear offset (no cos(dec)), with the reference degree value printed in the
+    label so the plot is still exactly reconstructible."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    resolved = resolve_result(session, h.RUN_ID, result_num)
+    sd, tracklet, gathered = resolved
+    exposure_times = [e.midpoint_mjd for e in touched_exposures(sd, tracklet)]
+
+    fig, ax = plt.subplots()
+    render_sky_plot(h.RUN_ID, result_num, tracklet, gathered, exposure_times, tmp_path, ax=ax)
+
+    assert any(line.get_visible() for line in ax.get_xgridlines())
+    assert any(line.get_visible() for line in ax.get_ygridlines())
+    assert "arcmin" in ax.get_xlabel() and "arcmin" in ax.get_ylabel()
+    assert ax.get_xlabel().startswith("RA - ") and " deg " in ax.get_xlabel()
+    assert ax.get_ylabel().startswith("Dec - ") and " deg " in ax.get_ylabel()
+    # the axis minimum is at (or very near) 0 arcmin -- it's defined as this plot's own min
+    assert ax.get_xlim()[0] <= 0 <= ax.get_xlim()[1]
+    assert ax.get_ylim()[0] <= 0 <= ax.get_ylim()[1]
+    plt.close(fig)
+
+
 def test_visualize_result_missing_returns_none(session, definition, tmp_path):
     assert visualize_result(session, h.FakeCutoutEngine(), h.RUN_ID, 999, tmp_path / "out") is None
 

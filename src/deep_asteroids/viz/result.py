@@ -169,7 +169,13 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     (``crossmatch.classify.matched_known_tracklet()``'s own return -- synthetic/mpchecker
     only) -- its own predicted track is drawn as a second, differently-colored arrow over
     the same time span, so the two fits (this result's own vs. the known object's) can be
-    visually compared."""
+    visually compared.
+
+    Axes are RA/Dec offset from this plot's own minimum (in degrees), in arcmin -- a plain
+    linear offset, not a sky projection (no cos(dec) factor, same convention ``vra`` already
+    uses elsewhere in this codebase): over one result's own small span this is visually
+    indistinguishable from a proper projection, and it keeps the exact reference point
+    (printed in the axis labels) so the plot is still exactly reconstructible in degrees."""
     if not gathered:
         return None
 
@@ -184,7 +190,30 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
         fig, ax = plt.subplots(figsize=(14, 6), dpi=110)
     ra, dec, time = (np.array(c) for c in zip(*gathered))
     t0 = float(time.min())
-    sc = ax.scatter(ra, dec, c=time - t0, cmap="viridis", label="observed (gathered)", zorder=2)
+
+    tmin, tmax = min([*exposure_times, time.min()]), max([*exposure_times, time.max()])
+    (ra0, dec0), (ra1, dec1) = predict(tracklet, tmin), predict(tracklet, tmax)
+    pred = np.array([predict(tracklet, tt) for tt in exposure_times]) if exposure_times else np.empty((0, 2))
+
+    matched_track = None
+    if matched is not None:
+        (mra0, mdec0) = _predict_linear(matched.epoch, matched.ra_epoch, matched.dec_epoch, matched.vra,
+                                        matched.vdec, tmin)
+        (mra1, mdec1) = _predict_linear(matched.epoch, matched.ra_epoch, matched.dec_epoch, matched.vra,
+                                        matched.vdec, tmax)
+        matched_track = (float(mra0), float(mdec0), float(mra1), float(mdec1))
+
+    # the arcmin-offset reference point: this plot's own minimum RA/Dec (in degrees), over
+    # every point that will actually be drawn
+    all_ra = np.r_[ra, pred[:, 0], [ra0, ra1], ([matched_track[0], matched_track[2]] if matched_track else [])]
+    all_dec = np.r_[dec, pred[:, 1], [dec0, dec1], ([matched_track[1], matched_track[3]] if matched_track else [])]
+    ra_min, dec_min = float(all_ra.min()), float(all_dec.min())
+
+    def arcmin(ra_deg, dec_deg):
+        return (ra_deg - ra_min) * 60.0, (dec_deg - dec_min) * 60.0
+
+    ra_am, dec_am = arcmin(ra, dec)
+    sc = ax.scatter(ra_am, dec_am, c=time - t0, cmap="viridis", label="observed (gathered)", zorder=2)
     # fraction/pad tighter than matplotlib's own defaults (0.15/0.05): those default to eating
     # a chunk of whatever's to the right of a manually-placed Axes (e.g. the PDF report's
     # light-curve panel, immediately to this one's right with no room to spare), overlapping
@@ -194,33 +223,32 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     cbar.set_label(f"time since {t0:.5f} MJD TAI (day)", fontsize=9)
     cbar.ax.tick_params(labelsize=8)
 
-    tmin, tmax = min([*exposure_times, time.min()]), max([*exposure_times, time.max()])
-    (ra0, dec0), (ra1, dec1) = predict(tracklet, tmin), predict(tracklet, tmax)
-    ax.add_patch(FancyArrowPatch((ra0, dec0), (ra1, dec1), color="C0", alpha=0.6, linewidth=3,
+    ra0_am, dec0_am = arcmin(ra0, dec0)
+    ra1_am, dec1_am = arcmin(ra1, dec1)
+    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.6, linewidth=3,
                                  arrowstyle="-|>", mutation_scale=20, zorder=1))
-    pred = np.array([predict(tracklet, tt) for tt in exposure_times]) if exposure_times else np.empty((0, 2))
-    if len(pred):
-        ax.plot(pred[:, 0], pred[:, 1], "x", color="C3", markersize=5, label="predicted (tracklet), per exposure",
-               zorder=3)
+    pred_am = np.column_stack(arcmin(pred[:, 0], pred[:, 1])) if len(pred) else np.empty((0, 2))
+    if len(pred_am):
+        ax.plot(pred_am[:, 0], pred_am[:, 1], "x", color="C3", markersize=5,
+               label="predicted (tracklet), per exposure", zorder=3)
 
-    xs, ys = [ra, pred[:, 0], [ra0], [ra1]], [dec, pred[:, 1], [dec0], [dec1]]
-    if matched is not None:
-        (mra0, mdec0) = _predict_linear(matched.epoch, matched.ra_epoch, matched.dec_epoch, matched.vra,
-                                        matched.vdec, tmin)
-        (mra1, mdec1) = _predict_linear(matched.epoch, matched.ra_epoch, matched.dec_epoch, matched.vra,
-                                        matched.vdec, tmax)
-        ax.add_patch(FancyArrowPatch((float(mra0), float(mdec0)), (float(mra1), float(mdec1)), color="C1",
+    xs, ys = [ra_am, pred_am[:, 0], [ra0_am], [ra1_am]], [dec_am, pred_am[:, 1], [dec0_am], [dec1_am]]
+    if matched_track is not None:
+        mra0_am, mdec0_am = arcmin(matched_track[0], matched_track[1])
+        mra1_am, mdec1_am = arcmin(matched_track[2], matched_track[3])
+        ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1",
                                      alpha=0.6, linewidth=3, arrowstyle="-|>", mutation_scale=20, zorder=1,
                                      linestyle="--", label=f"matched {matched.source} track"))
-        xs.append([mra0, mra1])
-        ys.append([mdec0, mdec1])
+        xs.append([mra0_am, mra1_am])
+        ys.append([mdec0_am, mdec1_am])
 
     xs, ys = np.concatenate(xs), np.concatenate(ys)
     xpad, ypad = (xs.max() - xs.min()) * 0.08 or 1e-4, (ys.max() - ys.min()) * 0.08 or 1e-4
     ax.set_xlim(xs.min() - xpad, xs.max() + xpad)
     ax.set_ylim(ys.min() - ypad, ys.max() + ypad)
-    ax.set_xlabel("RA (deg)")
-    ax.set_ylabel("Dec (deg)")
+    ax.set_xlabel(f"RA - {ra_min:.5f} deg (arcmin)")
+    ax.set_ylabel(f"Dec - {dec_min:.5f} deg (arcmin)")
+    ax.grid(True, alpha=0.3)
     if title:
         ax.set_title(f"{run_id} #{result_num}: sky")
     ax.legend(loc="best")

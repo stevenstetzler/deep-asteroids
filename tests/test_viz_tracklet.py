@@ -157,6 +157,29 @@ def test_measure_tracklet(known_tracklets, images, tmp_path):
     assert sorted(m.expnum for m in summary.measurements) == [845580, 845581, 845582]
 
 
+def test_render_light_curve_plot_grid_and_hours_since_start(known_tracklets, images, tmp_path):
+    """Grid on, and the x-axis in hours since the first in-bounds measurement -- not absolute
+    MJD TAI."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    (t,) = resolve_tracklets(known_tracklets, "mpc_observation", NIGHT, trkid="00000E2QG2")
+    summary = measure_tracklet(known_tracklets, get_deep_db(), FakeCutoutEngine(), t, cutout_dir=str(tmp_path))
+    t0 = min(m.mjd_tai for m in summary.measurements if m.in_bounds and m.mag is not None)
+
+    fig, ax = plt.subplots()
+    render_light_curve_plot(summary, tmp_path, ax=ax)
+
+    assert any(line.get_visible() for line in ax.get_xgridlines())
+    assert any(line.get_visible() for line in ax.get_ygridlines())
+    assert ax.get_xlabel() == f"hours since {t0:.5f} MJD TAI"
+    # the first point is at hour 0 (or very near it, given float round-tripping)
+    first_x = min(line.get_xdata()[0] for line in ax.get_lines() if len(line.get_xdata()))
+    assert abs(first_x - 0.0) < 1e-6
+    plt.close(fig)
+
+
 def test_annotation_text_formats_measurement_fields(known_tracklets, images, tmp_path):
     (t,) = resolve_tracklets(known_tracklets, "mpc_observation", NIGHT, trkid="00000E2QG2")
     summary = measure_tracklet(known_tracklets, get_deep_db(), FakeCutoutEngine(), t, cutout_dir=str(tmp_path))

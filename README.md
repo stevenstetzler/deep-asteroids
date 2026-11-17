@@ -569,7 +569,8 @@ binary at once, if `--component` is omitted -- and every exposure its
 own deep-db points touch on its night: runs forced photometry and
 writes a pixel cutout at the object's **predicted** position (from the
 tracklet's own linear fit, not the raw deep-db point -- this exercises
-the fit itself), then renders `light_curve.png` (mag vs. MJD TAI),
+the fit itself), then renders `light_curve.png` (mag vs. hours since the
+first in-bounds measurement),
 `coadd.png` (median stack, ZScale-stretched) and `movie.gif` (one frame
 per exposure, chronological, shared ZScale normalization, 4x
 nearest-neighbor upscale, 2 fps). Needs `ingest images` and the vendored

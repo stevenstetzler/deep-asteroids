@@ -228,15 +228,16 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
 
 
 def render_light_curve_plot(summary, out_dir, ax=None, fmt="png", title=True):
-    """mag vs. MJD TAI, for every in-bounds measurement with a real
-    (non-NaN) mag. By default creates and saves its own figure
-    (``light_curve.<fmt>``, ``fmt`` e.g. ``"png"``/``"pdf"``), returning
-    its path -- or ``None`` if there's nothing to plot, or (with
-    ``ax`` given) nothing was drawn. With ``ax`` given (an existing
-    Axes, e.g. one panel of a larger report figure), draws directly onto
-    it instead -- the caller owns saving that figure -- and always
-    returns ``None``. ``title=False`` skips the axes title (e.g. when a
-    report page already names the result elsewhere)."""
+    """mag vs. hours since the first in-bounds measurement, for every
+    in-bounds measurement with a real (non-NaN) mag. By default creates
+    and saves its own figure (``light_curve.<fmt>``, ``fmt`` e.g.
+    ``"png"``/``"pdf"``), returning its path -- or ``None`` if there's
+    nothing to plot, or (with ``ax`` given) nothing was drawn. With
+    ``ax`` given (an existing Axes, e.g. one panel of a larger report
+    figure), draws directly onto it instead -- the caller owns saving
+    that figure -- and always returns ``None``. ``title=False`` skips
+    the axes title (e.g. when a report page already names the result
+    elsewhere)."""
     import matplotlib
     matplotlib.use("Agg")  # headless cluster nodes -- never a display
     import matplotlib.pyplot as plt
@@ -248,14 +249,16 @@ def render_light_curve_plot(summary, out_dir, ax=None, fmt="png", title=True):
     fig = None
     if ax is None:
         fig, ax = plt.subplots(figsize=(7, 5), dpi=110)
-    t = [m.mjd_tai for m in rows]
+    t0 = min(m.mjd_tai for m in rows)
+    t = [(m.mjd_tai - t0) * 24.0 for m in rows]
     mag = [m.mag for m in rows]
     yerr_lo = [m.mag_err_lo or 0.0 for m in rows]
     yerr_hi = [m.mag_err_hi or 0.0 for m in rows]
     ax.errorbar(t, mag, yerr=[yerr_lo, yerr_hi], fmt="o", color="C0")
     ax.invert_yaxis()
-    ax.set_xlabel("MJD TAI")
+    ax.set_xlabel(f"hours since {t0:.5f} MJD TAI")
     ax.set_ylabel("mag")
+    ax.grid(True, alpha=0.3)
     if title:
         ax.set_title(f"{summary.label()}: light curve")
 
