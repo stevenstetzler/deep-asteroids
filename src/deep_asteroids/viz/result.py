@@ -233,7 +233,7 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     # shrinkA/shrinkB=0: FancyArrowPatch's own default (2pt each) pulls both ends in from the
     # given points, so the tip visibly stopped short of the actual last detection -- 0 makes
     # it touch tmin/tmax exactly.
-    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.5, linewidth=12,
+    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.35, linewidth=16,
                                  arrowstyle="-|>", mutation_scale=20, zorder=3, shrinkA=0, shrinkB=0,
                                  label="predicted (tracklet)"))
 
@@ -241,8 +241,8 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     if matched_track is not None:
         mra0_am, mdec0_am = arcmin(matched_track[0], matched_track[1])
         mra1_am, mdec1_am = arcmin(matched_track[2], matched_track[3])
-        ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1", alpha=0.5,
-                                     linewidth=12, arrowstyle="-|>", mutation_scale=20, zorder=3,
+        ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1", alpha=0.35,
+                                     linewidth=16, arrowstyle="-|>", mutation_scale=20, zorder=3,
                                      shrinkA=0, shrinkB=0, linestyle="--",
                                      label=f"matched {matched.source} track"))
         xs.append([mra0_am, mra1_am])
