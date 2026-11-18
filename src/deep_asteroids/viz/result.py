@@ -185,7 +185,6 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     import matplotlib.pyplot as plt
     import numpy as np
     from matplotlib.lines import Line2D
-    from matplotlib.patches import FancyArrowPatch
 
     fig = None
     if ax is None:
@@ -228,26 +227,27 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
 
     ra0_am, dec0_am = arcmin(ra0, dec0)
     ra1_am, dec1_am = arcmin(ra1, dec1)
-    # zorder above the scatter's (2), and translucent: the arrow is context drawn over the
+    # zorder above the scatter's (2), and translucent: the line is context drawn over the
     # detections, not something the detections should be hidden underneath (#38 follow-up --
     # this replaces the earlier opaque-arrow-plus-per-exposure-x-marker treatment).
-    # shrinkA/shrinkB=0: FancyArrowPatch's own default (2pt each) pulls both ends in from the
-    # given points, so the tip visibly stopped short of the actual last detection -- 0 makes
-    # it touch tmin/tmax exactly.
-    # No `label=` here: a legend handle auto-built from this patch would inherit its own
+    # A plain Line2D, not FancyArrowPatch (tried first): with solid_capstyle="butt" it ends
+    # exactly flush at (ra0,dec0)/(ra1,dec1), no shrink/mutation_scale bookkeeping to get
+    # right, and -- verified side by side -- no visible difference in where it stops; a
+    # stray high-residual detection at the tracklet's own end was being misread as "the line
+    # stopping short of the last point" when the line was already reaching the real fit.
+    # No `label=` here: a legend handle auto-built from this line would inherit its own
     # linewidth (16) and visibly overflow the legend's own handle box. A separate, thin
     # Line2D proxy below (same color/alpha/linestyle) stands in for it in the legend instead.
-    ax.add_patch(FancyArrowPatch((ra0_am, dec0_am), (ra1_am, dec1_am), color="C0", alpha=0.35, linewidth=16,
-                                 arrowstyle="-|>", mutation_scale=20, zorder=3, shrinkA=0, shrinkB=0))
+    ax.add_line(Line2D([ra0_am, ra1_am], [dec0_am, dec1_am], color="C0", alpha=0.35, linewidth=16,
+                       zorder=3, solid_capstyle="butt"))
     legend_handles = [sc, Line2D([0], [0], color="C0", alpha=0.35, linewidth=3, label="predicted (tracklet)")]
 
     xs, ys = [ra_am, [ra0_am], [ra1_am]], [dec_am, [dec0_am], [dec1_am]]
     if matched_track is not None:
         mra0_am, mdec0_am = arcmin(matched_track[0], matched_track[1])
         mra1_am, mdec1_am = arcmin(matched_track[2], matched_track[3])
-        ax.add_patch(FancyArrowPatch((mra0_am, mdec0_am), (mra1_am, mdec1_am), color="C1", alpha=0.35,
-                                     linewidth=16, arrowstyle="-|>", mutation_scale=20, zorder=3,
-                                     shrinkA=0, shrinkB=0, linestyle="--"))
+        ax.add_line(Line2D([mra0_am, mra1_am], [mdec0_am, mdec1_am], color="C1", alpha=0.35,
+                           linewidth=16, zorder=3, solid_capstyle="butt", linestyle="--"))
         legend_handles.append(Line2D([0], [0], color="C1", alpha=0.35, linewidth=3, linestyle="--",
                                      label=f"matched {matched.source} track"))
         xs.append([mra0_am, mra1_am])
