@@ -232,6 +232,10 @@ src/deep_asteroids/_version.py
 # be reviewed without rerunning the real pipeline.
 /web/*
 !/web/index.html
+!/web/search/
+/web/search/**
+!/web/search/**/
+!/web/search/**/index.html
 !/web/results/
 /web/results/**
 !/web/results/**/

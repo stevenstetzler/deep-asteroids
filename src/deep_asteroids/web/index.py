@@ -26,7 +26,9 @@ from pathlib import Path
 from find_asteroids.models import Result, Search, Tracklet
 from sqlalchemy import func, select
 
+from deep_asteroids.database.images import Image
 from deep_asteroids.database.search import SearchDefinition as SD
+from deep_asteroids.database.search import SearchDefinitionExposure as SDE
 from deep_asteroids.database.search_run import SearchRun
 from deep_asteroids.web.site import band_slug
 
@@ -94,6 +96,33 @@ def bands_rows(session, night, field, detector_number):
     )
 
 
+def search_coverage_rows(session, product_type="differenceExp"):
+    """``[(night, field, detector_number, band, run_id, n_exposures, n_images, searched,
+    n_results), ...]`` for every `search_definition` in the database, ordered by
+    ``n_exposures`` descending (then night/field/detector/band, for a stable order among
+    ties) -- the flat, whole-survey view ``web/search/`` renders, complementing the
+    nights -> fields -> CCDs -> bands drill-down the rest of this module builds (same data
+    `query coverage` prints as text; ``searched`` is the same find-asteroids `search`-row
+    check `bands_rows()` uses, not `search_run` -- see its own docstring)."""
+    image_counts = (
+        select(SDE.search_definition_id.label("sdid"), func.count(Image.id).label("n_images"))
+        .outerjoin(Image, (Image.deep_db_detector_exposure_id == SDE.deep_db_detector_exposure_id)
+                   & (Image.product_type == product_type))
+        .group_by(SDE.search_definition_id)
+        .subquery()
+    )
+    return session.execute(
+        select(SD.night, SD.field, SD.detector_number, SD.band, SD.run_id, SD.n_exposures,
+               func.coalesce(image_counts.c.n_images, 0), Search.id.isnot(None), func.count(Result.id))
+        .select_from(SD)
+        .outerjoin(image_counts, image_counts.c.sdid == SD.id)
+        .outerjoin(Search, Search.run_id == SD.run_id)
+        .outerjoin(Result, Result.search_id == Search.id)
+        .group_by(SD.id)
+        .order_by(SD.n_exposures.desc(), SD.night, SD.field, SD.detector_number, SD.band)
+    ).all()
+
+
 def results_rows(session, run_id):
     """``[(result_num, n, vra, vdec, sigma_v), ...]`` for one run_id, by result_num
     (find-asteroids' own ranking, best first). ``sigma_v`` is ``None`` unless both
@@ -112,10 +141,12 @@ def results_rows(session, run_id):
     ]
 
 
-def _render_table_page(out_path, title, up_href, columns, rows, empty_message):
-    """Writes a plain HTML page: an optional "up" link, then a table of ``rows`` under
-    ``columns`` headers (or ``empty_message`` if there are none). Each row's first element
-    is ``(label, href)`` for its link cell; the rest are plain values. Returns the path."""
+def _render_table_page(out_path, title, up_href, columns, rows, empty_message, extra_links=None):
+    """Writes a plain HTML page: an optional "up" link, then optional ``extra_links``
+    (``[(label, href), ...]``, e.g. a cross-link to another section), then a table of
+    ``rows`` under ``columns`` headers (or ``empty_message`` if there are none). Each row's
+    first element is ``(label, href)`` for its link cell; the rest are plain values. Returns
+    the path."""
     esc = html.escape
     out_path = Path(out_path)
 
@@ -131,6 +162,7 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message):
     else:
         table = f"  <p>{esc(empty_message)}</p>"
     up_link = f'  <p><a href="{esc(up_href)}">&uarr; up</a></p>\n' if up_href else ""
+    extra = "".join(f'  <p><a href="{esc(href)}">{esc(label)}</a></p>\n' for label, href in (extra_links or []))
 
     page = f"""<!doctype html>
 <html lang="en">
@@ -149,7 +181,7 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message):
 </head>
 <body>
   <h1>{esc(title)}</h1>
-{up_link}{table}
+{up_link}{extra}{table}
 </body>
 </html>
 """
@@ -171,12 +203,13 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message):
 def build_site_index(session, web_dir):
     """(Re)writes every index page above the leaf: ``web_dir/index.html`` (nights), then
     one page per night (fields), per (night, field) (CCDs), per (night, field,
-    detector_number) (bands/searches), and per `search_definition` (results) -- straight
-    from the database. Every page's content is always recomputed (cheap: one aggregate query
-    each), but `_render_table_page()` skips the write itself if nothing actually changed, so
-    a re-run only touches disk for pages whose underlying data is different. Returns every
-    page's path regardless (whether its write was skipped or not) -- the full site, not just
-    what changed this call."""
+    detector_number) (bands/searches), and per `search_definition` (results); plus one flat,
+    whole-survey page, ``web_dir/search/index.html`` (#28's search-infrastructure
+    visualization) -- all straight from the database. Every page's content is always
+    recomputed (cheap: one aggregate query each), but `_render_table_page()` skips the write
+    itself if nothing actually changed, so a re-run only touches disk for pages whose
+    underlying data is different. Returns every page's path regardless (whether its write was
+    skipped or not) -- the full site, not just what changed this call."""
     web_dir = Path(web_dir)
     paths = []
 
@@ -186,7 +219,19 @@ def build_site_index(session, web_dir):
         ["night", "fields", "searches defined", "searches executed", "results"],
         [((night, f"results/{night}/index.html"), n_fields, n_defs, n_searched, n_results)
          for night, n_fields, n_defs, n_searched, n_results in night_rows],
-        "No nights ingested yet (run `ingest searches` first)."))
+        "No nights ingested yet (run `ingest searches` first).",
+        extra_links=[("search coverage (every search_definition, flat, whole survey)", "search/index.html")]))
+
+    search_rows = search_coverage_rows(session)
+    paths.append(_render_table_page(
+        web_dir / "search" / "index.html", "deep-asteroids: search coverage", "../index.html",
+        ["(night, field, detector)", "band", "n_exposures", "n_images", "searched", "results"],
+        [((f"{night} / {field} / ccd{detector_number}",
+           f"../results/{night}/{field}/ccd{detector_number}/index.html"),
+          band if band else "(all)", n_exposures, n_images, "yes" if searched else "no", n_results)
+         for night, field, detector_number, band, run_id, n_exposures, n_images, searched, n_results
+         in search_rows],
+        "No search definitions ingested yet (run `ingest searches` first)."))
 
     for night, *_ in night_rows:
         field_rows = fields_rows(session, night)

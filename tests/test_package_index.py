@@ -14,6 +14,7 @@ from deep_asteroids.web.index import (
     fields_rows,
     nights_rows,
     results_rows,
+    search_coverage_rows,
 )
 
 NIGHT_1 = 20190402
@@ -72,6 +73,23 @@ def test_results_rows_ordered_by_result_num(session, seeded):
     assert all(r[1] == 12 for r in rows)  # n (Hough points)
 
 
+def test_search_coverage_rows_ordered_by_n_exposures_desc(session, seeded):
+    searched, unsearched, other_night = seeded
+    searched.n_exposures, unsearched.n_exposures, other_night.n_exposures = 5, 20, 10
+    session.commit()
+
+    rows = search_coverage_rows(session)
+    assert [r[5] for r in rows] == [20, 10, 5]  # n_exposures, descending
+
+    by_run_id = {r[4]: r for r in rows}
+    night, field, detector_number, band, _run_id, _n_exposures, n_images, searched_flag, n_results = \
+        by_run_id["run-searched"]
+    assert (night, field, detector_number, band) == (NIGHT_1, "A0b", 1, "VR")
+    assert searched_flag is True and n_results == 2 and n_images == 0  # no `ingest images` in this fixture
+    assert by_run_id["run-unsearched"][7] is False and by_run_id["run-unsearched"][8] == 0
+    assert by_run_id["run-other-night"][7] is True and by_run_id["run-other-night"][8] == 1
+
+
 def test_results_rows_handles_one_sided_sigma_v(session):
     """A real full-survey case (~80 of ~277k results): a degenerate single-axis fit leaves
     exactly one of sigma_vra/sigma_vdec None. math.hypot() can't take a None, so sigma_v must
@@ -96,6 +114,12 @@ def test_build_site_index_writes_every_level_and_links_resolve(session, seeded, 
     root = (web_dir / "index.html").read_text()
     assert f'href="results/{NIGHT_1}/index.html"' in root and f'href="results/{NIGHT_2}/index.html"' in root
     assert "searches defined" in root and "searches executed" in root
+    assert 'href="search/index.html"' in root
+
+    search_page = (web_dir / "search" / "index.html").read_text()
+    assert '<a href="../index.html">' in search_page
+    assert f'href="../results/{NIGHT_1}/A0b/ccd1/index.html"' in search_page
+    assert ">VR<" in search_page and ">(all)<" in search_page
 
     night_page = (web_dir / "results" / str(NIGHT_1) / "index.html").read_text()
     assert 'href="A0b/index.html"' in night_page and '<a href="../../index.html">' in night_page
