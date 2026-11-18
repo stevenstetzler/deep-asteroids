@@ -28,7 +28,8 @@ from sqlalchemy import select
 
 from deep_asteroids.database.images import Image
 from deep_asteroids.database.search import SearchDefinition
-from deep_asteroids.ingest.fit import utc_to_tai
+from deep_asteroids.ingest.fit import predict as _predict_linear
+from deep_asteroids.ingest.fit import sep_arcsec, utc_to_tai
 from deep_asteroids.util.cutout import PhotometryRequest
 from deep_asteroids.viz.tracklet import (
     DEFAULT_CUTOUT_SIZE,
@@ -86,12 +87,25 @@ def touched_exposures(sd, tracklet):
             if tracklet.tmin - 0.01 <= float(utc_to_tai(e.midpoint_mjd)) <= tracklet.tmax + 0.01]
 
 
-def measure_result(session, engine, sd, tracklet, exposures, product_type=DEFAULT_PRODUCT_TYPE,
+def _seen(ra, dec, mjd_tai, gathered, radius_arcsec=2.0, time_tol_days=1e-4):
+    """#38: is there a ``gathered`` (observed) point at this same exposure (``time`` within
+    ``time_tol_days`` -- exposures are minutes to hours apart, so this only ever matches the
+    one exposure this measurement is actually at) within ``radius_arcsec`` of the predicted
+    position ``(ra, dec)``? I.e. did the search actually detect something consistent with the
+    trajectory here, as opposed to this being a predicted-but-undetected (blank/noise)
+    position."""
+    return any(abs(g_time - mjd_tai) < time_tol_days and sep_arcsec(ra, dec, g_ra, g_dec) < radius_arcsec
+               for g_ra, g_dec, g_time in gathered)
+
+
+def measure_result(session, engine, sd, tracklet, exposures, gathered=(), product_type=DEFAULT_PRODUCT_TYPE,
                    cutout_dir=None, cutout_size=DEFAULT_CUTOUT_SIZE):
     """Forced photometry (+ a cutout, if ``cutout_dir`` is given) at
     ``tracklet``'s own predicted position on every one of ``exposures``.
-    Returns a ``VizSummary`` with ``measurements`` filled in (no plots
-    yet)."""
+    ``gathered`` (the result's own observed Hough-stage detections --
+    ``resolve_result()``'s own return) tags each measurement's ``seen`` (#38): whether a
+    gathered point within 2" of the predicted position exists at that exposure's own time.
+    Returns a ``VizSummary`` with ``measurements`` filled in (no plots yet)."""
     identity = ResultIdentity(source="find-asteroids", night=sd.night, provid=f"{sd.run_id} result")
     summary = VizSummary(tracklet=identity, n_exposures_touched=len(exposures))
     if not exposures:
@@ -123,7 +137,7 @@ def measure_result(session, engine, sd, tracklet, exposures, product_type=DEFAUL
             deep_db_detector_exposure_id=e.deep_db_detector_exposure_id, mjd_tai=mjd_tai, ra=float(ra),
             dec=float(dec), in_bounds=record.in_bounds, night=image.night, field=image.field, expnum=image.expnum,
             mag=record.mag, mag_err_lo=record.mag_err_lo, mag_err_hi=record.mag_err_hi,
-            cutout_path=record.cutout_path,
+            cutout_path=record.cutout_path, seen=_seen(ra, dec, mjd_tai, gathered),
         ))
     summary.measurements.sort(key=lambda m: m.mjd_tai)
 
@@ -139,17 +153,30 @@ def measure_result(session, engine, sd, tracklet, exposures, product_type=DEFAUL
 
 
 def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=None, fmt="png",
-                    title=True):
+                    title=True, matched=None):
     """The result's gathered (observed) detections colored by time, with
-    its tracklet's predicted track as an arrow over the searched time
-    span and an x at the predicted position in every exposure (salad's
-    sky plot, ``salad/viz.py::render_sky_plot``). By default creates and
-    saves its own figure (``sky.<fmt>``), returning its path -- or
-    ``None`` if there's nothing gathered to plot, or (with ``ax`` given)
-    nothing was drawn. With ``ax`` given, draws directly onto it instead
-    (the caller owns saving) and always returns ``None`` -- see
+    its tracklet's predicted track as a translucent arrow over the
+    searched time span, drawn on top of the detections (not a salad-style
+    opaque arrow underneath plus an x marking the predicted position in
+    every exposure -- the detections are the point, the arrow is context).
+    By default creates and saves its own figure (``sky.<fmt>``), returning
+    its path -- or ``None`` if there's nothing gathered to plot, or (with
+    ``ax`` given) nothing was drawn. With ``ax`` given, draws directly onto
+    it instead (the caller owns saving) and always returns ``None`` -- see
     ``viz/tracklet.py``'s ``render_light_curve_plot()``. ``title=False``
-    skips the axes title."""
+    skips the axes title.
+
+    ``matched`` (#38), if given, is the ``known_tracklet`` row this result matches
+    (``crossmatch.classify.matched_known_tracklet()``'s own return -- synthetic/mpchecker
+    only) -- its own predicted track is drawn as a second, differently-colored arrow over
+    the same time span, so the two fits (this result's own vs. the known object's) can be
+    visually compared.
+
+    Axes are RA/Dec offset from this plot's own minimum (in degrees), in arcmin -- a plain
+    linear offset, not a sky projection (no cos(dec) factor, same convention ``vra`` already
+    uses elsewhere in this codebase): over one result's own small span this is visually
+    indistinguishable from a proper projection, and it keeps the exact reference point
+    (printed in the axis labels) so the plot is still exactly reconstructible in degrees."""
     if not gathered:
         return None
 
@@ -157,34 +184,85 @@ def render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
-    from matplotlib.patches import FancyArrowPatch
+    from matplotlib.lines import Line2D
 
     fig = None
     if ax is None:
         fig, ax = plt.subplots(figsize=(14, 6), dpi=110)
     ra, dec, time = (np.array(c) for c in zip(*gathered))
     t0 = float(time.min())
-    sc = ax.scatter(ra, dec, c=time - t0, cmap="viridis", label="observed (gathered)", zorder=2)
-    ax.figure.colorbar(sc, ax=ax).set_label(f"time since {t0:.5f} MJD TAI (day)")
 
     tmin, tmax = min([*exposure_times, time.min()]), max([*exposure_times, time.max()])
     (ra0, dec0), (ra1, dec1) = predict(tracklet, tmin), predict(tracklet, tmax)
-    ax.add_patch(FancyArrowPatch((ra0, dec0), (ra1, dec1), color="C0", alpha=0.6, linewidth=3,
-                                 arrowstyle="-|>", mutation_scale=20, zorder=1))
-    pred = np.array([predict(tracklet, tt) for tt in exposure_times]) if exposure_times else np.empty((0, 2))
-    if len(pred):
-        ax.plot(pred[:, 0], pred[:, 1], "x", color="C3", markersize=5, label="predicted (tracklet), per exposure",
-               zorder=3)
 
-    xs, ys = np.r_[ra, pred[:, 0], ra0, ra1], np.r_[dec, pred[:, 1], dec0, dec1]
+    matched_track = None
+    if matched is not None:
+        (mra0, mdec0) = _predict_linear(matched.epoch, matched.ra_epoch, matched.dec_epoch, matched.vra,
+                                        matched.vdec, tmin)
+        (mra1, mdec1) = _predict_linear(matched.epoch, matched.ra_epoch, matched.dec_epoch, matched.vra,
+                                        matched.vdec, tmax)
+        matched_track = (float(mra0), float(mdec0), float(mra1), float(mdec1))
+
+    # the arcmin-offset reference point: this plot's own minimum RA/Dec (in degrees), over
+    # every point that will actually be drawn. The predicted track is linear, so its two
+    # endpoints (ra0/dec0, ra1/dec1) already bound its full extent -- no need for every
+    # per-exposure point along it.
+    all_ra = np.r_[ra, [ra0, ra1], ([matched_track[0], matched_track[2]] if matched_track else [])]
+    all_dec = np.r_[dec, [dec0, dec1], ([matched_track[1], matched_track[3]] if matched_track else [])]
+    ra_min, dec_min = float(all_ra.min()), float(all_dec.min())
+
+    def arcmin(ra_deg, dec_deg):
+        return (ra_deg - ra_min) * 60.0, (dec_deg - dec_min) * 60.0
+
+    ra_am, dec_am = arcmin(ra, dec)
+    sc = ax.scatter(ra_am, dec_am, c=time - t0, cmap="viridis", label="observed (gathered)", zorder=2)
+    # fraction/pad tighter than matplotlib's own defaults (0.15/0.05): those default to eating
+    # a chunk of whatever's to the right of a manually-placed Axes (e.g. the PDF report's
+    # light-curve panel, immediately to this one's right with no room to spare), overlapping
+    # its "mag" ylabel with this colorbar's own rotated label text. A compact one still reads
+    # fine in the standalone sky.png (ax=None, no neighbor) too.
+    cbar = ax.figure.colorbar(sc, ax=ax, fraction=0.05, pad=0.02)
+    cbar.set_label(f"time since {t0:.5f} MJD TAI (day)", fontsize=9)
+    cbar.ax.tick_params(labelsize=8)
+
+    ra0_am, dec0_am = arcmin(ra0, dec0)
+    ra1_am, dec1_am = arcmin(ra1, dec1)
+    # zorder above the scatter's (2), and translucent: the line is context drawn over the
+    # detections, not something the detections should be hidden underneath (#38 follow-up --
+    # this replaces the earlier opaque-arrow-plus-per-exposure-x-marker treatment).
+    # A plain Line2D, not FancyArrowPatch (tried first): with solid_capstyle="butt" it ends
+    # exactly flush at (ra0,dec0)/(ra1,dec1), no shrink/mutation_scale bookkeeping to get
+    # right, and -- verified side by side -- no visible difference in where it stops; a
+    # stray high-residual detection at the tracklet's own end was being misread as "the line
+    # stopping short of the last point" when the line was already reaching the real fit.
+    # No `label=` here: a legend handle auto-built from this line would inherit its own
+    # linewidth (16) and visibly overflow the legend's own handle box. A separate, thin
+    # Line2D proxy below (same color/alpha/linestyle) stands in for it in the legend instead.
+    ax.add_line(Line2D([ra0_am, ra1_am], [dec0_am, dec1_am], color="C0", alpha=0.35, linewidth=16,
+                       zorder=3, solid_capstyle="butt"))
+    legend_handles = [sc, Line2D([0], [0], color="C0", alpha=0.35, linewidth=3, label="predicted (tracklet)")]
+
+    xs, ys = [ra_am, [ra0_am], [ra1_am]], [dec_am, [dec0_am], [dec1_am]]
+    if matched_track is not None:
+        mra0_am, mdec0_am = arcmin(matched_track[0], matched_track[1])
+        mra1_am, mdec1_am = arcmin(matched_track[2], matched_track[3])
+        ax.add_line(Line2D([mra0_am, mra1_am], [mdec0_am, mdec1_am], color="C1", alpha=0.35,
+                           linewidth=16, zorder=3, solid_capstyle="butt", linestyle="--"))
+        legend_handles.append(Line2D([0], [0], color="C1", alpha=0.35, linewidth=3, linestyle="--",
+                                     label=f"matched {matched.source} track"))
+        xs.append([mra0_am, mra1_am])
+        ys.append([mdec0_am, mdec1_am])
+
+    xs, ys = np.concatenate(xs), np.concatenate(ys)
     xpad, ypad = (xs.max() - xs.min()) * 0.08 or 1e-4, (ys.max() - ys.min()) * 0.08 or 1e-4
     ax.set_xlim(xs.min() - xpad, xs.max() + xpad)
     ax.set_ylim(ys.min() - ypad, ys.max() + ypad)
-    ax.set_xlabel("RA (deg)")
-    ax.set_ylabel("Dec (deg)")
+    ax.set_xlabel(f"RA - {ra_min:.5f} deg (arcmin)")
+    ax.set_ylabel(f"Dec - {dec_min:.5f} deg (arcmin)")
+    ax.grid(True, alpha=0.3)
     if title:
         ax.set_title(f"{run_id} #{result_num}: sky")
-    ax.legend(loc="best")
+    ax.legend(handles=legend_handles, loc="best")
 
     if fig is None:
         return None
@@ -202,17 +280,30 @@ def visualize_result(session, engine, run_id, result_num, out_dir, product_type=
     ``sky.<plot_format>`` under ``out_dir`` (``plot_format`` e.g.
     ``"png"`` (default) or ``"pdf"`` for vector output; the movie is
     always a gif). Cutouts are written to a temporary directory and
-    discarded -- only those four files are kept. ``movie=False`` skips
+    discarded -- only those plots are kept. ``movie=False`` skips
     rendering/writing ``movie.gif`` entirely (it's by far the largest
     artifact -- see #32/#33's storage estimate -- and no other artifact
     depends on it: the PDF never embeds it, and the page just omits that
-    column). Returns the filled-in ``VizSummary`` (with a
-    ``sky_plot_data`` attribute -- ``(tracklet, gathered,
-    exposure_times)`` -- stashed on it so a combined report can redraw
-    the sky plot in vector form without re-measuring), or ``None`` if
-    ``run_id``/``result_num`` doesn't exist (run `ingest searches`/
-    `ingest images`/`search run` first)."""
+    column).
+
+    Three coadds are rendered, not one (#38): ``coadd`` (every touched
+    exposure with a surviving cutout, unchanged from before #38),
+    ``coadd_seen`` (only the exposures where a ``gathered`` point within 2"
+    of the predicted position exists -- the search actually detected
+    something there) and ``coadd_unseen`` (the rest -- predicted but not
+    detected). Either can be missing from ``summary.artifacts`` if that
+    subset is empty. The sky plot also draws a matched synthetic/mpchecker
+    object's own trajectory alongside this result's, if ``crossmatch`` found
+    one within its usual radius (``crossmatch.classify.matched_known_tracklet()``).
+
+    Returns the filled-in ``VizSummary`` (with a ``sky_plot_data`` attribute
+    -- ``(tracklet, gathered, exposure_times, matched)`` -- stashed on it so
+    a combined report can redraw the sky plot in vector form without
+    re-measuring), or ``None`` if ``run_id``/``result_num`` doesn't exist
+    (run `ingest searches`/`ingest images`/`search run` first)."""
     from pathlib import Path
+
+    from deep_asteroids.crossmatch.classify import matched_known_tracklet
 
     out_dir = Path(out_dir)
     resolved = resolve_result(session, run_id, result_num)
@@ -220,19 +311,22 @@ def visualize_result(session, engine, run_id, result_num, out_dir, product_type=
         return None
     sd, tracklet, gathered = resolved
     exposures = touched_exposures(sd, tracklet)
+    matched = matched_known_tracklet(session, tracklet.result_id)
 
     with tempfile.TemporaryDirectory(prefix="viz-result-") as cutout_dir:
-        summary = measure_result(session, engine, sd, tracklet, exposures, product_type=product_type,
-                                 cutout_dir=cutout_dir, cutout_size=cutout_size)
+        summary = measure_result(session, engine, sd, tracklet, exposures, gathered=gathered,
+                                 product_type=product_type, cutout_dir=cutout_dir, cutout_size=cutout_size)
         exposure_times = [float(utc_to_tai(e.midpoint_mjd)) for e in exposures]
         for kind, path in (
             ("light_curve", render_light_curve_plot(summary, out_dir, fmt=plot_format)),
             ("coadd", render_coadd_plot(summary, out_dir, fmt=plot_format)),
+            ("coadd_seen", render_coadd_plot(summary, out_dir, fmt=plot_format, which="seen")),
+            ("coadd_unseen", render_coadd_plot(summary, out_dir, fmt=plot_format, which="unseen")),
             ("movie", render_movie(summary, out_dir, annotate=annotate) if movie else None),
             ("sky", render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir,
-                                    fmt=plot_format)),
+                                    fmt=plot_format, matched=matched)),
         ):
             if path is not None:
                 summary.artifacts[kind] = str(path)
-    summary.sky_plot_data = (tracklet, gathered, exposure_times)
+    summary.sky_plot_data = (tracklet, gathered, exposure_times, matched)
     return summary

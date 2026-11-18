@@ -569,7 +569,8 @@ binary at once, if `--component` is omitted -- and every exposure its
 own deep-db points touch on its night: runs forced photometry and
 writes a pixel cutout at the object's **predicted** position (from the
 tracklet's own linear fit, not the raw deep-db point -- this exercises
-the fit itself), then renders `light_curve.png` (mag vs. MJD TAI),
+the fit itself), then renders `light_curve.png` (mag vs. hours since the
+first in-bounds measurement),
 `coadd.png` (median stack, ZScale-stretched) and `movie.gif` (one frame
 per exposure, chronological, shared ZScale normalization, 4x
 nearest-neighbor upscale, 2 fps). Needs `ingest images` and the vendored
@@ -612,10 +613,21 @@ movie, at one ingested find-asteroids result's own tracklet's predicted position
 exposure of its search definition that the tracklet's fit (`tmin`/`tmax`) spans -- plus
 a sky plot, the result's gathered (observed) detections colored by time against the tracklet's
 predicted track (salad's sky plot). Unlike `viz tracklet`, cutouts are written to a temporary
-directory and discarded once rendered: only the four plots are kept in `--out-dir` (default
+directory and discarded once rendered: only the plots below are kept in `--out-dir` (default
 `./viz/result/<run_id>/<result_num>/`). `--annotate` is the same `str.format()` template as
 `viz tracklet`'s. `--plot-format pdf` writes the light curve/coadd/sky plots as vector PDFs
 instead of PNGs (the movie is always a gif -- there's no vector equivalent of an animation).
+
+**Three coadds, not one (#38)**: `coadd.png` (every touched exposure with a surviving cutout,
+same as before #38), `coadd_seen.png` (only the exposures where a `gathered` point -- the
+search's own Hough-stage detection -- exists within 2" of the predicted position: the search
+actually detected something consistent with the trajectory there) and `coadd_unseen.png` (the
+rest: measured at the predicted position, but nothing was actually detected there). Either of
+the seen/unseen variants can be missing if that subset is empty (e.g. every exposure was
+"seen", as for a clean synthetic/real detection with no gaps). **The sky plot also draws a
+matched object's own trajectory**, if `crossmatch` found a synthetic or mpchecker candidate
+for this result within the usual radius (`crossmatch.classify.matched_known_tracklet()`) -- a
+second, dashed arrow alongside the result's own, so the two fits can be compared visually.
 
 Needs `ingest searches`, `ingest images` and the run's results already ingested (`search run`),
 and the vendored cutout engine built (above). Promoted from the one-off
@@ -643,10 +655,12 @@ web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html
 independent of band -- what `query coverage` already tracks); `<band>` (`all` for the
 undefined-band union) is the search performed on it -- today a 1:1 `search_definition`/`run_id`,
 but its own directory level in case a data subset is ever searched more than one way; `<result_
-num>` is the result itself. Each page embeds the same four plots `viz result` renders
-(`light_curve.png`/`coadd.png`/`movie.gif`/`sky.png`) plus a small table of the result's own
-stats (`n`, `vra`/`vdec`, `sigma_v`), in equal-width columns (summary | sky | coadd | light
-curve | movie) that the browser wraps row-to-column on its own as the window narrows -- no JS,
+num>` is the result itself. Each page embeds the same plots `viz result` renders
+(`light_curve.png`/`coadd.png`/`coadd_seen.png`/`coadd_unseen.png`/`movie.gif`/`sky.png`, the
+last two coadds possibly missing -- see `viz result`'s own "#38" note above) plus a small table
+of the result's own stats (`n`, `vra`/`vdec`, `sigma_v`), in equal-width columns (summary | sky
+| coadd (all) | coadd (seen) | coadd (unseen) | light curve | movie) that the browser wraps
+row-to-column on its own as the window narrows -- no JS,
 no explicit mobile breakpoint, just a shared `min-width` on every column. Every plot's CSS
 height matches the movie's own rendered height, so they line up regardless of each plot's own
 aspect ratio. Selects search definitions the same way `search run` does; every one of their
@@ -683,11 +697,16 @@ title and this top row sit flush against the page's top edge, and a 0.5in gap op
 bottom row instead) -- then the sky plot bottom-left and the light curve bottom-right (both
 5in wide x 3.25in tall). The summary panel and every image box get 0.25in of padding on each
 side, and none of the three plots keeps its own title (the page's own title already names the
-result). The sky/coadd/light curve plots are drawn directly onto the report's own axes from the
-same measurements/cutouts `viz result` already computed (not a rasterized copy of the page's
-own PNGs) -- genuinely vector output, so it stays crisp at any zoom, without needing an extra
+result). **Two small coadd thumbnails, "seen"/"unseen" (#38), are stacked in the 1.75in-wide
+gap this layout otherwise leaves unused between the summary panel and the full-size "all"
+coadd** -- neither disturbs the existing geometry; an empty one (e.g. nothing was ever
+"unseen") shows a small "(unseen: none)" placeholder instead of a blank box. The sky/coadd/
+light curve plots are drawn directly onto the report's own axes from the same measurements/
+cutouts `viz result` already computed (not a rasterized copy of the page's own PNGs) --
+genuinely vector output, so it stays crisp at any zoom, without needing an extra
 PDF-manipulation dependency. Skipped (the page gets no button) if any of sky/coadd/light
-curve didn't render, e.g. no cutouts survived.
+curve didn't render, e.g. no cutouts survived -- `coadd_seen`/`coadd_unseen` don't gate this:
+either can be legitimately empty without the rest of the report being incomplete.
 
 ### Browsing: the index pages above the leaf
 

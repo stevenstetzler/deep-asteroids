@@ -84,6 +84,13 @@ class TrackletMeasurement:
     mag_err_lo: float | None = None
     mag_err_hi: float | None = None
     cutout_path: str | None = None
+    # #38: find-asteroids results only -- whether this exposure has a `gathered` (observed)
+    # point within 2" of the predicted position at this exposure's own time, i.e. whether the
+    # search actually detected something consistent with the trajectory here, as opposed to
+    # measuring a blank/noise cutout at a predicted-but-undetected position. `None` for a
+    # known-object tracklet (viz/tracklet.py's own visualize_tracklet()), which has no
+    # analogous "detected vs not" distinction -- always stacks everything, same as before.
+    seen: bool | None = None
 
 
 @dataclass
@@ -221,15 +228,16 @@ def measure_tracklet(session, deep_engine, engine, tracklet, product_type=DEFAUL
 
 
 def render_light_curve_plot(summary, out_dir, ax=None, fmt="png", title=True):
-    """mag vs. MJD TAI, for every in-bounds measurement with a real
-    (non-NaN) mag. By default creates and saves its own figure
-    (``light_curve.<fmt>``, ``fmt`` e.g. ``"png"``/``"pdf"``), returning
-    its path -- or ``None`` if there's nothing to plot, or (with
-    ``ax`` given) nothing was drawn. With ``ax`` given (an existing
-    Axes, e.g. one panel of a larger report figure), draws directly onto
-    it instead -- the caller owns saving that figure -- and always
-    returns ``None``. ``title=False`` skips the axes title (e.g. when a
-    report page already names the result elsewhere)."""
+    """mag vs. hours since the first in-bounds measurement, for every
+    in-bounds measurement with a real (non-NaN) mag. By default creates
+    and saves its own figure (``light_curve.<fmt>``, ``fmt`` e.g.
+    ``"png"``/``"pdf"``), returning its path -- or ``None`` if there's
+    nothing to plot, or (with ``ax`` given) nothing was drawn. With
+    ``ax`` given (an existing Axes, e.g. one panel of a larger report
+    figure), draws directly onto it instead -- the caller owns saving
+    that figure -- and always returns ``None``. ``title=False`` skips
+    the axes title (e.g. when a report page already names the result
+    elsewhere)."""
     import matplotlib
     matplotlib.use("Agg")  # headless cluster nodes -- never a display
     import matplotlib.pyplot as plt
@@ -241,14 +249,16 @@ def render_light_curve_plot(summary, out_dir, ax=None, fmt="png", title=True):
     fig = None
     if ax is None:
         fig, ax = plt.subplots(figsize=(7, 5), dpi=110)
-    t = [m.mjd_tai for m in rows]
+    t0 = min(m.mjd_tai for m in rows)
+    t = [(m.mjd_tai - t0) * 24.0 for m in rows]
     mag = [m.mag for m in rows]
     yerr_lo = [m.mag_err_lo or 0.0 for m in rows]
     yerr_hi = [m.mag_err_hi or 0.0 for m in rows]
     ax.errorbar(t, mag, yerr=[yerr_lo, yerr_hi], fmt="o", color="C0")
     ax.invert_yaxis()
-    ax.set_xlabel("MJD TAI")
+    ax.set_xlabel(f"hours since {t0:.5f} MJD TAI")
     ax.set_ylabel("mag")
+    ax.grid(True, alpha=0.3)
     if title:
         ax.set_title(f"{summary.label()}: light curve")
 
@@ -300,6 +310,18 @@ def _cutout_stack(summary):
     return frames
 
 
+def _filter_stack(frames, which):
+    """``frames`` (``_cutout_stack()``'s own return) narrowed to ``which`` (#38):
+    ``"all"`` (every frame, unchanged), ``"seen"`` (only frames whose measurement's own
+    ``seen`` is ``True``), or ``"unseen"`` (only ``seen is False``, explicitly -- a frame
+    whose ``seen`` is ``None``, e.g. a known-object tracklet with no such concept at all,
+    is in neither "seen" nor "unseen", only "all")."""
+    if which == "all":
+        return frames
+    want = which == "seen"
+    return [(m, arr) for m, arr in frames if m.seen is want]
+
+
 def _zscale_limits(data):
     """``ZScaleInterval().get_limits()``, guarded against a degenerate
     (near-constant) image: its sample-based algorithm can come back with
@@ -317,25 +339,33 @@ def _zscale_limits(data):
     return (vmin, vmax) if vmin < vmax else (vmin - 0.5, vmax + 0.5)
 
 
-def render_coadd_plot(summary, out_dir, ax=None, fmt="png", title=True):
+def render_coadd_plot(summary, out_dir, ax=None, fmt="png", title=True, which="all", title_text=None):
     """The median-stacked cutout, ZScale-stretched. By default creates and
-    saves its own figure (``coadd.<fmt>``), returning its path -- or
-    ``None`` if there are no cutouts to stack, or (with ``ax`` given)
-    nothing was drawn. With ``ax`` given, draws directly onto it instead
-    (the caller owns saving) and always returns ``None`` -- see
-    ``render_light_curve_plot()``. ``title=False`` skips the axes title."""
+    saves its own figure (``coadd.<fmt>`` for ``which="all"``, else
+    ``coadd_<which>.<fmt>``), returning its path -- or ``None`` if there are no
+    cutouts to stack for ``which``, or (with ``ax`` given) nothing was drawn.
+    With ``ax`` given, draws directly onto it instead (the caller owns saving)
+    and always returns ``None`` -- see ``render_light_curve_plot()``.
+    ``title=False`` skips the axes title; ``title_text``, if given, overrides
+    the default title text (e.g. a short label that fits a small panel).
+
+    ``which`` (#38) narrows the stack to the exposures where the search
+    actually detected something consistent with the trajectory (``"seen"``,
+    a ``gathered`` point within 2" of the predicted position), those where it
+    didn't (``"unseen"``), or every touched exposure regardless (``"all"``,
+    the default -- unchanged from before #38). See ``_filter_stack()``."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
 
-    frames = _cutout_stack(summary)
+    frames = _filter_stack(_cutout_stack(summary), which)
     if not frames:
         return None
     stack = np.stack([f[1] for f in frames])
     coadd = np.median(stack, axis=0)
     if not np.isfinite(coadd).any():
-        log.warning("%s: coadd has no finite pixels, skipping", summary.label())
+        log.warning("%s: coadd (%s) has no finite pixels, skipping", summary.label(), which)
         return None
 
     fig = None
@@ -344,13 +374,18 @@ def render_coadd_plot(summary, out_dir, ax=None, fmt="png", title=True):
     vmin, vmax = _zscale_limits(coadd)
     ax.imshow(coadd, cmap="gray", vmin=vmin, vmax=vmax, origin="lower")
     if title:
-        ax.set_title(f"{summary.label()}: coadd ({len(frames)} image(s))")
+        if title_text is not None:
+            ax.set_title(title_text)
+        elif which == "all":
+            ax.set_title(f"{summary.label()}: coadd ({len(frames)} image(s))")
+        else:
+            ax.set_title(f"{summary.label()}: coadd ({which}, {len(frames)} image(s))")
     ax.axis("off")
 
     if fig is None:
         return None
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"coadd.{fmt}"
+    path = out_dir / (f"coadd.{fmt}" if which == "all" else f"coadd_{which}.{fmt}")
     fig.savefig(path)
     plt.close(fig)
     return path

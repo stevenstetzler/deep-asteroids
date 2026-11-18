@@ -29,7 +29,9 @@ from deep_asteroids.viz.tracklet import render_coadd_plot, render_light_curve_pl
 
 _ARTIFACT_LABELS = (
     ("sky", "Sky"),
-    ("coadd", "Coadd"),
+    ("coadd", "Coadd (all)"),
+    ("coadd_seen", "Coadd (seen)"),
+    ("coadd_unseen", "Coadd (unseen)"),
     ("light_curve", "Light curve"),
     ("movie", "Movie"),
 )
@@ -41,6 +43,9 @@ _COLUMN_MIN_WIDTH_PX = 220
 # page (11x8.5) with a 0.5in margin on every side, leaving a 10x7.5 content area: a 1in title
 # band across the top, then two 3.25in-tall rows -- summary (left, 5in wide) + coadd (right,
 # 3.25in square) on top, sky (left, 5in wide) + light curve (right, 5in wide) on the bottom.
+# #38: the top row's summary (0-5in) and coadd (6.75-10in) leave a 1.75in-wide gap (5-6.75in)
+# unused -- just wide enough for two small coadd_seen/coadd_unseen panels, stacked, without
+# disturbing the full-size "all" coadd or either existing row's geometry.
 _PDF_PAGE_WIDTH_IN = 11.0
 _PDF_PAGE_HEIGHT_IN = 8.5
 _PDF_MARGIN_IN = 0.5
@@ -51,8 +56,25 @@ _PDF_ROW_HEIGHT_IN = 3.25
 _PDF_SUMMARY_WIDTH_IN = 5.0
 _PDF_PADDING_IN = 0.25  # inset on every side of the summary panel and each image box
 _PDF_COADD_SIZE_IN = 3.25
-_PDF_SKY_WIDTH_IN = 5.0
-_PDF_LIGHT_CURVE_WIDTH_IN = 5.0
+# the sky plot's colorbar (and its rotated label) sits right at its panel's own right edge,
+# with nothing to its right in the standalone sky.png -- but here the light-curve panel's
+# ylabel used to be immediately adjacent with no margin to spare, and the two overlapped. An
+# explicit extra gap (on top of each panel's own _PDF_PADDING_IN inset) fixes that with room
+# to spare, even though render_sky_plot() also tightened the colorbar itself.
+_PDF_SKY_LIGHT_CURVE_GAP_IN = 0.9
+_PDF_SKY_WIDTH_IN = 5.0 - _PDF_SKY_LIGHT_CURVE_GAP_IN / 2
+_PDF_LIGHT_CURVE_WIDTH_IN = 5.0 - _PDF_SKY_LIGHT_CURVE_GAP_IN / 2
+# the sky plot's own y-tick labels (e.g. "-13.822") plus its "Dec (deg)" ylabel, both outside
+# (left of) its axes spine, need more room than _PDF_PADDING_IN leaves at the page's left
+# edge -- confirmed by reading the rendered PDF's own text: "Dec (deg)" was landing at a
+# negative x and matplotlib was silently clipping it off the page entirely, with nothing
+# wrong-looking to notice short of reading the extracted text. This reserves it extra left
+# margin (stolen from its own width, not the light-curve panel's).
+_PDF_SKY_LEFT_MARGIN_IN = 0.35
+# the seen/unseen coadd pair (#38), stacked in the gap between the summary and the coadd
+_PDF_SMALL_COADD_WIDTH_IN = _PDF_CONTENT_WIDTH_IN - _PDF_SUMMARY_WIDTH_IN - _PDF_COADD_SIZE_IN  # 1.75in
+_PDF_SMALL_COADD_HEIGHT_IN = _PDF_ROW_HEIGHT_IN / 2  # 1.625in
+_PDF_SMALL_COADD_PADDING_IN = 0.1  # thumbnails -- a smaller inset than the full-size boxes get
 # title/summary/coadd sit this much higher than their slot's plain top-down position would
 # put them, opening a gap above the sky/light curve row (which doesn't shift)
 _PDF_TOP_ROW_SHIFT_UP_IN = 0.5
@@ -211,6 +233,13 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
     ``_PDF_SKY_WIDTH_IN``/``_PDF_LIGHT_CURVE_WIDTH_IN`` wide x ``_PDF_ROW_HEIGHT_IN`` tall).
     The summary panel and every image box get ``_PDF_PADDING_IN`` of padding on each side.
 
+    #38: two small coadd thumbnails ("seen"/"unseen", ``_PDF_SMALL_COADD_WIDTH_IN`` x
+    ``_PDF_SMALL_COADD_HEIGHT_IN`` each) are stacked in the gap this leaves between the
+    summary panel and the full-size "all" coadd, which is otherwise unchanged -- see the
+    module-level comment above those constants. The sky plot also draws the matched
+    synthetic/mpchecker object's own trajectory, if any (``summary.sky_plot_data``'s
+    ``matched``).
+
     The sky/coadd/light curve plots are drawn directly onto this page's own axes (sharing
     ``summary``'s already-computed measurements/cutouts and the ``sky_plot_data``
     ``visualize_result()`` stashes on it), with their own titles suppressed (the page's title
@@ -218,7 +247,8 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
     ``summary.artifacts`` images -- vector output, not a rasterized copy of them, however
     those were rendered (``png`` or ``pdf``). Needs ``sky``/``coadd``/``light_curve`` in
     ``summary.artifacts`` (so there's something to draw); returns ``None`` if any are missing
-    (e.g. no cutouts survived)."""
+    (e.g. no cutouts survived). ``coadd_seen``/``coadd_unseen`` are drawn if present, but
+    their absence (e.g. nothing was ever "seen") doesn't block the rest of the page."""
     needed = ("sky", "coadd", "light_curve")
     if not all(kind in summary.artifacts for kind in needed):
         return None
@@ -260,12 +290,35 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
                           _PDF_COADD_SIZE_IN, _PDF_COADD_SIZE_IN)
     render_coadd_plot(summary, out_dir, ax=coadd_ax, title=False)  # turns its own axis off (an image, no ticks)
 
-    bottom_row_y = _PDF_TITLE_HEIGHT_IN + _PDF_ROW_HEIGHT_IN
-    sky_ax = padded_box(0, bottom_row_y, _PDF_SKY_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
-    tracklet, gathered, exposure_times = summary.sky_plot_data
-    render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=sky_ax, title=False)
+    small_pad = _PDF_SMALL_COADD_PADDING_IN
 
-    light_curve_ax = padded_box(_PDF_SKY_WIDTH_IN, bottom_row_y, _PDF_LIGHT_CURVE_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
+    def small_box(x_in, y_from_top_in):
+        left = (_PDF_MARGIN_IN + x_in + small_pad) / _PDF_PAGE_WIDTH_IN
+        bottom = (_PDF_PAGE_HEIGHT_IN - _PDF_MARGIN_IN - y_from_top_in - _PDF_SMALL_COADD_HEIGHT_IN + small_pad) \
+            / _PDF_PAGE_HEIGHT_IN
+        w = (_PDF_SMALL_COADD_WIDTH_IN - 2 * small_pad) / _PDF_PAGE_WIDTH_IN
+        h = (_PDF_SMALL_COADD_HEIGHT_IN - 2 * small_pad) / _PDF_PAGE_HEIGHT_IN
+        return fig.add_axes([left, bottom, w, h])
+
+    small_x = _PDF_SUMMARY_WIDTH_IN
+    small_y0 = _PDF_TITLE_HEIGHT_IN - shift
+    for i, which in enumerate(("seen", "unseen")):
+        small_ax = small_box(small_x, small_y0 + i * _PDF_SMALL_COADD_HEIGHT_IN)
+        small_ax.axis("off")
+        if render_coadd_plot(summary, out_dir, ax=small_ax, title=True, which=which,
+                             title_text=which) is None and f"coadd_{which}" not in summary.artifacts:
+            small_ax.text(0.5, 0.5, f"({which}: none)", fontsize=7, color="#888", ha="center", va="center",
+                          transform=small_ax.transAxes)
+
+    bottom_row_y = _PDF_TITLE_HEIGHT_IN + _PDF_ROW_HEIGHT_IN
+    sky_ax = padded_box(_PDF_SKY_LEFT_MARGIN_IN, bottom_row_y,
+                        _PDF_SKY_WIDTH_IN - _PDF_SKY_LEFT_MARGIN_IN, _PDF_ROW_HEIGHT_IN)
+    tracklet, gathered, exposure_times, matched = summary.sky_plot_data
+    render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir, ax=sky_ax, title=False,
+                    matched=matched)
+
+    light_curve_ax = padded_box(_PDF_SKY_WIDTH_IN + _PDF_SKY_LIGHT_CURVE_GAP_IN, bottom_row_y,
+                                _PDF_LIGHT_CURVE_WIDTH_IN, _PDF_ROW_HEIGHT_IN)
     render_light_curve_plot(summary, out_dir, ax=light_curve_ax, title=False)
 
     out_dir.mkdir(parents=True, exist_ok=True)

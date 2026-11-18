@@ -83,6 +83,33 @@ class ResultRow:
         return bool(self.putative_real) and self.group in (UNMATCHED_IN, UNMATCHED_OUT)
 
 
+def matched_known_tracklet(session, result_id, thresholds=None):
+    """The ``known_tracklet`` row to draw as a second trajectory on a result's sky plot
+    (#38): the closer of its closest synthetic/mpchecker crossmatch candidate, each only
+    if within its own group's radius (same radii ``classify()`` uses) -- or ``None`` if
+    neither matches. Deliberately narrower than ``classify()``'s own group priority
+    (which lets ``submitted`` win over ``synthetic`` regardless of distance): this is
+    "is there a known object's own fit worth overlaying for comparison", not "what group
+    does this result count as", so a result that happens to also match a submitted
+    tracklet still gets its synthetic/mpchecker trajectory drawn if one is within radius."""
+    from deep_asteroids.database.tracklets import KnownTracklet
+
+    thresholds = thresholds or Thresholds()
+    best = None
+    for group in (SYNTHETIC, KNOWN):
+        source = GROUP_SOURCE[group]
+        row = session.execute(
+            select(KnownTracklet, CrossmatchCandidate.mean_sep_arcsec)
+            .join(CrossmatchCandidate, CrossmatchCandidate.known_tracklet_id == KnownTracklet.id)
+            .where(CrossmatchCandidate.result_id == result_id, CrossmatchCandidate.source == source,
+                   CrossmatchCandidate.mean_sep_arcsec < thresholds.radius(group))
+            .order_by(CrossmatchCandidate.mean_sep_arcsec).limit(1)
+        ).first()
+        if row is not None and (best is None or row[1] < best[1]):
+            best = row
+    return best[0] if best else None
+
+
 class MissingStatisticsError(ValueError):
     """Some selected results have no ``result_statistics`` row."""
 

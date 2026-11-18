@@ -16,6 +16,7 @@ from deep_asteroids.crossmatch.classify import (
     classify,
     funnel,
     load_results,
+    matched_known_tracklet,
     retained,
     why_rejected,
 )
@@ -140,6 +141,44 @@ def test_results_never_deduplicated_count_as_their_own_object(session):
     _night(session)
     compute_result_statistics(session)
     assert all(r.authoritative for r in load_results(session))
+
+
+def test_matched_known_tracklet_for_sky_plot_overlay(session):
+    """#38: the known_tracklet a result's sky plot should draw as a second trajectory --
+    synthetic/mpchecker only, within each source's own radius, the closer of the two if both
+    match; submitted matches (mpc_linked) are deliberately ignored here even though
+    classify() would let them outrank a synthetic match -- this is "is there a known
+    object's fit worth overlaying", not "what group does classify() put this result in"."""
+    h.add_definition(session, "run")
+    (r,) = h.add_run(session, "run", [{"ra": 215.0, "dec": -13.0, "vra": 0.2, "vdec": 0.05}])
+    session.commit()
+    result_id = r.id
+
+    # nothing matched yet
+    assert matched_known_tracklet(session, result_id) is None
+
+    synthetic = h.add_known(session, "synthetic", *h.offset(215.0, -13.0, east_arcsec=0.3), 0.2, 0.05, orbit_id=1)
+    crossmatch_results(session)
+    matched = matched_known_tracklet(session, result_id)
+    assert matched is not None and matched.id == synthetic.id
+
+    # a closer mpchecker match wins over the farther synthetic one
+    close_mpchecker = h.add_known(session, "mpchecker", *h.offset(215.0, -13.0, east_arcsec=0.05), 0.2, 0.05,
+                                  provid="close-mpchecker")
+    crossmatch_results(session, force=True)
+    matched = matched_known_tracklet(session, result_id)
+    assert matched is not None and matched.id == close_mpchecker.id
+
+    # a submitted (mpc_linked) match -- even an exact one -- is never returned by this
+    # function, unlike classify()'s own group priority
+    h.add_known(session, "mpc_linked", 215.0, -13.0, 0.2, 0.05, trkid="exact")
+    crossmatch_results(session, force=True)
+    matched = matched_known_tracklet(session, result_id)
+    assert matched is not None and matched.source in ("synthetic", "mpchecker")
+
+    # a radius too tight for either match (both are a bit off-exact, see above) returns None
+    none_within_radius = Thresholds(synthetic_radius_arcsec=0.01, known_radius_arcsec=0.01)
+    assert matched_known_tracklet(session, result_id, none_within_radius) is None
 
 
 def test_cli_summary_and_query(db_url):
