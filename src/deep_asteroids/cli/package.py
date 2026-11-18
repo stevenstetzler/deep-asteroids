@@ -201,13 +201,19 @@ def merge_pdfs(ctx, nights, group_names, web_dir, out_dir, sigma_v_threshold, au
     with Session(get_db()) as session:
         selected_nights = nights or sorted({sd.night for sd in resolve_search_definitions(session)})
         for night in selected_nights:
+            sds = {sd.run_id: sd for sd in resolve_search_definitions(session, night=night)}
+            # VR run_ids still lack statistics/crossmatch/dedup; a `nights=[night]` filter would pull
+            # them in too and fail the whole night with MissingStatisticsError, so scope to the
+            # putative-real groups' own (non-VR) run_ids instead.
+            non_vr_run_ids = [run_id for run_id in sds if not run_id.endswith("-VR")]
+            if not non_vr_run_ids:
+                continue
             try:
-                rows = classified(session, nights=[night], run_ids=None, thresholds=thresholds)
+                rows = classified(session, nights=None, run_ids=non_vr_run_ids, thresholds=thresholds)
             except click.ClickException:
                 continue  # no results (or none with statistics) for this night
             if authoritative_only:
                 rows = [r for r in rows if r.authoritative]
-            sds = {sd.run_id: sd for sd in resolve_search_definitions(session, night=night)}
 
             for group in groups:
                 out_path = out_dir / str(night) / f"{group}.pdf"
