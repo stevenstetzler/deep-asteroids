@@ -10,7 +10,9 @@ from deep_asteroids.crossmatch.completeness import (
     bin_completeness,
     completeness_rows,
     inside_quadrilaterals,
+    missed_known_objects,
     wilson,
+    write_missed_csv,
 )
 from deep_asteroids.crossmatch.match import crossmatch_results
 from deep_asteroids.database import create_db
@@ -168,3 +170,87 @@ def test_plot_and_cli(db_url, tmp_path):
     assert plot_completeness(rows, tmp_path / "direct.png", radius=2.0).exists()
     with pytest.raises(ValueError, match="no findable"):
         plot_completeness([], tmp_path / "empty.png")
+
+
+def test_missed_known_objects_lists_only_unrecovered_with_a_label(session):
+    ids = _scene(session)
+    from datetime import datetime
+
+    from find_asteroids.models import Result
+
+    from deep_asteroids.database.crossmatch import CrossmatchCandidate
+
+    result = session.scalars(select(Result)).first()
+    for name, sep in (("A", 0.1), ("B", 0.5)):  # C is findable but never recovered
+        session.add(CrossmatchCandidate(
+            result_id=result.id, known_tracklet_id=ids[name], night=h.NIGHT, source="synthetic", n_times=N,
+            mean_sep_arcsec=sep, min_sep_arcsec=sep, max_sep_arcsec=sep, total_sep_arcsec=sep * N, velocity_diff=0.0,
+            created_at=datetime(2026, 1, 1)))
+    session.commit()
+
+    missed = missed_known_objects(session, nights=[h.NIGHT])
+    assert [m.known_tracklet_id for m in missed] == [ids["C"]]
+    (c,) = missed
+    assert c.source == "synthetic" and c.night == h.NIGHT and c.run_id == "run" and c.mag == 24.0
+    assert c.label == f"orbit {ord('C')} (primary)"  # synthetic objects are identified by their orbit
+    assert missed_known_objects(session, nights=[20000101]) == []
+
+
+def test_missed_known_objects_mpc_linked_has_no_magnitude_and_falls_back_through_identity(session):
+    h.add_definition(session, "run", footprint=SMALL_CHIP)
+    h.add_run(session, "run", [{"ra": h.BASE[0], "dec": h.BASE[1], **V}, {"ra": h.BASE[0], "dec": h.BASE[1] + 0.01, **V}])
+    permid = h.add_known(session, "mpc_linked", h.BASE[0], h.BASE[1], 0.2, 0.0, permid="12345", name="Name",
+                         provid="2020 AA", designations="2020 AA")
+    name_only = h.add_known(session, "mpc_linked", h.BASE[0], h.BASE[1] + 0.01, 0.2, 0.0, name="Name2",
+                            provid="2020 AB", designations="2020 AB")
+    provid_only = h.add_known(session, "mpc_linked", h.BASE[0], h.BASE[1] - 0.01, 0.2, 0.0, provid="2020 AC",
+                              designations="2020 AC")
+    no_identity = h.add_known(session, "mpc_linked", h.BASE[0], h.BASE[1] + 0.02, 0.2, 0.0)
+    session.commit()
+
+    rows = completeness_rows(session, source="mpc_linked", nights=[h.NIGHT])
+    assert len(rows) == 4 and all(r.mag != r.mag for r in rows)  # NaN: mpc_linked has no truth magnitude
+
+    missed = missed_known_objects(session, source="mpc_linked", nights=[h.NIGHT])
+    by_id = {m.known_tracklet_id: m for m in missed}
+    assert by_id[permid.id].label == "12345"
+    assert by_id[name_only.id].label == "Name2"
+    assert by_id[provid_only.id].label == "2020 AC"
+    assert by_id[no_identity.id].label == f"known_tracklet {no_identity.id}"
+    assert all(m.mag != m.mag for m in missed)
+
+
+def test_write_missed_csv(tmp_path, session):
+    _scene(session)
+    missed = missed_known_objects(session, nights=[h.NIGHT])
+    out = write_missed_csv(missed, tmp_path / "missed.csv")
+    assert out == tmp_path / "missed.csv"
+    lines = out.read_text().splitlines()
+    assert lines[0] == "known_tracklet_id,source,night,run_id,label,mag,speed,n_on_chip,n_exposures"
+    assert len(lines) == 1 + len(missed)
+    assert f"orbit {ord('C')} (primary)" in out.read_text()  # C: findable, no crossmatch candidate added here
+
+
+def test_missed_objects_cli(db_url, tmp_path):
+    runner = CliRunner()
+    with Session(create_db()) as session:
+        h.add_definition(session, "run", footprint=CHIP)
+        h.add_run(session, "run", [{"ra": h.BASE[0], "dec": h.BASE[1], **V}])
+        h.add_known(session, "synthetic", h.BASE[0], h.BASE[1], 0.2, 0.0, orbit_id=1, component="primary", mag=21.2)
+        h.add_known(session, "synthetic", h.BASE[0], h.BASE[1] + 0.05, 0.2, 0.0, orbit_id=2, component="primary",
+                    mag=23.4)
+        session.commit()
+    assert runner.invoke(main, ["crossmatch", "synthetic"]).exit_code == 0
+
+    out = runner.invoke(main, ["missed-objects", "--source", "synthetic", "--night", str(h.NIGHT)])
+    assert out.exit_code == 0, out.output
+    assert "1 missed synthetic object(s)" in out.output
+    assert "orbit 2 (primary)" in out.output
+
+    csv_path = tmp_path / "missed.csv"
+    out = runner.invoke(main, ["missed-objects", "--source", "synthetic", "--night", str(h.NIGHT), "--out", str(csv_path)])
+    assert out.exit_code == 0 and f"wrote {csv_path}" in out.output
+    assert csv_path.read_text().splitlines()[0].startswith("known_tracklet_id,")
+
+    none = runner.invoke(main, ["missed-objects", "--source", "synthetic", "--night", "19000101"])
+    assert none.exit_code == 0 and "0 missed synthetic object(s)" in none.output

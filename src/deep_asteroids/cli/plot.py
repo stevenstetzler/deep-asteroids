@@ -139,6 +139,45 @@ def completeness(ctx, out, source, radius_arcsec, min_exposure_fraction, bin_wid
     click.echo(f"wrote {plot_completeness(rows, out, source, bin_width, radius)}")
 
 
+@main.command("missed-objects")
+@click.option("--source", type=click.Choice(["synthetic", "mpchecker", "mpc_linked"]), default="synthetic",
+              show_default=True, help="mpc_linked: submitted MPC observations (#28's linked tracklets)")
+@click.option("--radius-arcsec", type=float, default=None,
+              show_default="2 for synthetic/mpc_linked, 10 for mpchecker",
+              help="An object is recovered if a result matches it within this mean separation")
+@click.option("--min-exposure-fraction", type=float, default=0.5, show_default=True,
+              help="An object is findable if it is on a searched chip for at least this fraction of the search's exposures")
+@click.option("--night", "nights", multiple=True, type=int, help="Only these nights (repeatable)")
+@click.option("--run-id", "run_ids", multiple=True, type=str, help="Only these search runs (repeatable)")
+@click.option("--out", type=click.Path(dir_okay=False), default=None,
+              help="CSV to write, one row per missed object; omit to just print the count")
+@click.pass_context
+def missed_objects(ctx, source, radius_arcsec, min_exposure_fraction, nights, run_ids, out):
+    """Known objects (#40) that a search could have found but no result matched: mpchecker
+    ephemerides, synthetic objects, or submitted MPC observations (mpc_linked).
+
+    An object counts only if it was on a searched chip and inside the search's velocity range
+    (see `plot completeness`); this lists the ones among those that were NOT recovered, each with
+    its identity (provid/permid/name/designations, or the synthetic orbit). Needs the cross-match."""
+    from sqlalchemy.orm import Session
+
+    from deep_asteroids.crossmatch.completeness import DEFAULT_RADII, missed_known_objects, write_missed_csv
+    from deep_asteroids.database import create_db
+
+    radius = DEFAULT_RADII[source] if radius_arcsec is None else radius_arcsec
+    with Session(create_db()) as session:
+        missed = missed_known_objects(session, source=source, nights=nights or None, run_ids=run_ids or None,
+                                      radius=radius, min_exposure_fraction=min_exposure_fraction)
+    click.echo(f"{len(missed):,} missed {source} object(s)")
+    for m in missed[:20] if out is None else []:
+        mag = "" if m.mag != m.mag else f", mag {m.mag:.2f}"  # mag != mag: NaN (mpc_linked)
+        click.echo(f"  {m.label} -- night {m.night}, {m.run_id}{mag}")
+    if out is not None:
+        click.echo(f"wrote {write_missed_csv(missed, out)}")
+    elif len(missed) > 20:
+        click.echo(f"  ... and {len(missed) - 20} more (--out to write the full list)")
+
+
 @main.command()
 @_selection
 @_thresholds
