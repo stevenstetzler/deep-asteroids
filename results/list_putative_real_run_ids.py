@@ -20,25 +20,29 @@ Writes one run_id per line to stdout, sorted -- redirect to the file
 `package_backfill_putative_real_by_run.sh` reads (``$RUN_ID_LIST``, default
 ``results/putative_real_run_ids.txt``)."""
 import click
-from find_asteroids.models import Search
+from find_asteroids.models import Result, Search
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from deep_asteroids.crossmatch.classify import Thresholds, classify, load_results
 from deep_asteroids.database import get_db
 from deep_asteroids.database.search import SearchDefinition, band_clause, parse_band
+from deep_asteroids.database.statistics import ResultStatistics
 
 
 def putative_real_run_ids(session, sigma_v_threshold=0.00015, band="VR"):
-    """Run_ids of ``band``'s searches (a band as ``load_results`` takes it) with a putative-real result."""
-    q = select(SearchDefinition.run_id).distinct()
+    """Run_ids of ``band``'s searches (a band as ``load_results`` takes it) with a putative-real result: ``sigma_v``
+    below the threshold and the speed strictly inside the search's velocity range, the cut
+    ``crossmatch.classify.classify`` applies -- as one query, not by loading and classifying every result. A
+    run_id with no search definition cannot be packaged and is left out."""
+    q = (select(Search.run_id).distinct()
+         .join(Result, Result.search_id == Search.id)
+         .join(ResultStatistics, ResultStatistics.result_id == Result.id)
+         .join(SearchDefinition, SearchDefinition.run_id == Search.run_id)
+         .where(ResultStatistics.sigma_v < sigma_v_threshold,
+                ResultStatistics.speed > Search.velocity_0, ResultStatistics.speed < Search.velocity_1))
     if (clause := band_clause(band)) is not None:
         q = q.where(clause)
-    defined = {r for r, in session.execute(q)}  # a Search.run_id with no definition cannot be packaged
-    run_ids = [r for r, in session.execute(select(Search.run_id).distinct()) if r in defined]
-    rows = load_results(session, run_ids=run_ids, band=band)
-    classify(rows, Thresholds(sigma_v_threshold=sigma_v_threshold))
-    return sorted({r.run_id for r in rows if r.putative_real})
+    return sorted(r for r, in session.execute(q))
 
 
 @click.command()

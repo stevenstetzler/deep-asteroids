@@ -29,6 +29,9 @@ def package(ctx):
                    "`query results --putative-real`); needs `statistics`/`crossmatch` already run")
 @click.option("--sigma-v-threshold", type=float, default=0.00025, show_default=True,
               help="Putative-real cut threshold, same as `query results`")
+@click.option("--workers", type=click.IntRange(min=1), default=1, show_default=True,
+              help="Image reads to overlap (the cutout engine mostly waits on storage); a search's results are "
+                   "measured together, so each of its images is read once, not once per result")
 @click.option("--dry-run", is_flag=True,
               help="Report how many selected pages are already rendered vs. pending; render nothing")
 @click.option("--movie/--no-movie", default=True, show_default=True,
@@ -36,7 +39,7 @@ def package(ctx):
                    "--no-movie skips it; the page and PDF are unaffected either way")
 @click.pass_context
 def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_dir, product_type, cutout_size,
-          annotate, force, putative_real, sigma_v_threshold, dry_run, movie):
+          annotate, force, putative_real, sigma_v_threshold, workers, dry_run, movie):
     """One cached page per result under
     web/results/<night>/<field>/ccd<detector_number>/<band>/<result_num>/index.html.
 
@@ -47,14 +50,18 @@ def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_
     `ingest images`/`search run` already done, and the vendored cutout engine built
     (--dry-run excepted: it needs neither). #32's batch backfill is just this command run
     once per selected run_id, in parallel -- the already-rendered-index.html check above is
-    the whole manifest, so a re-run after a partial/interrupted batch only (re)does the gap."""
+    the whole manifest, so a re-run after a partial/interrupted batch only (re)does the gap.
+
+    The results of one search are measured together: rendering a result reads every image it
+    crosses (~94 files of ~55 MB), and a search's results all cross the same images, so each image
+    is read once per search (in batches of 16 results), not once per result."""
     from find_asteroids.models import Result, Search
     from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     from deep_asteroids.database import get_db
     from deep_asteroids.search.run import resolve_search_definitions
-    from deep_asteroids.web.site import package_result, result_dir
+    from deep_asteroids.web.site import package_results, result_dir
 
     def _band(value):
         if value is None:
@@ -96,17 +103,18 @@ def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_
             if putative_real:
                 nums = [n for n in nums if n in putative_real_nums.get(sd.run_id, ())]
 
-            for result_num in nums:
-                if dry_run:
+            if dry_run:
+                for result_num in nums:
                     if (result_dir(web_dir, sd, result_num) / "index.html").exists():
                         n_skipped += 1
                     else:
                         n_pending += 1
-                    continue
+                continue
 
-                skipped, path = package_result(session, engine, sd, result_num, web_dir,
-                                               product_type=product_type, cutout_size=cutout_size,
-                                               annotate=annotate, force=force, movie=movie)
+            outcomes = package_results(session, engine, sd, nums, web_dir, product_type=product_type,
+                                       cutout_size=cutout_size, annotate=annotate, force=force, movie=movie,
+                                       workers=workers)
+            for result_num, (skipped, path) in outcomes.items():
                 if path is None:
                     n_missing += 1
                     click.echo(f"{sd.run_id} #{result_num}: no such result, skipping")

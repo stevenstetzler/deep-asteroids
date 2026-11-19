@@ -98,6 +98,78 @@ def _seen(ra, dec, mjd_tai, gathered, radius_arcsec=2.0, time_tol_days=1e-4):
                for g_ra, g_dec, g_time in gathered)
 
 
+def measure_results(session, engine, jobs, product_type=DEFAULT_PRODUCT_TYPE, cutout_dir=None,
+                    cutout_size=DEFAULT_CUTOUT_SIZE, workers=1):
+    """``measure_result`` for several results at once: ``jobs`` is a list of ``(sd, tracklet, exposures,
+    gathered)``, and the result is one ``VizSummary`` per job, in order.
+
+    The cost of a measurement is reading the image, and the results of one search all fall on the same
+    exposures, so every image is read **once**, with the predicted positions of every job that touches it
+    in a single engine call, instead of once per result. ``workers`` > 1 overlaps that many image reads
+    (the engine is a subprocess that waits on storage). Cutouts of all jobs go to the one ``cutout_dir``,
+    each named by its request id (``<exposure index>_<detector-exposure id>_<job>``)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    summaries = []
+    for sd, _tracklet, exposures, _gathered in jobs:
+        identity = ResultIdentity(source="find-asteroids", night=sd.night, provid=f"{sd.run_id} result")
+        summaries.append(VizSummary(tracklet=identity, n_exposures_touched=len(exposures)))
+
+    detector_exposure_ids = {e.deep_db_detector_exposure_id for _sd, _t, exposures, _g in jobs for e in exposures}
+    images = {}
+    ids = sorted(detector_exposure_ids)
+    for chunk in range(0, len(ids), 500):
+        images.update({
+            img.deep_db_detector_exposure_id: img
+            for img in session.scalars(select(Image).where(
+                Image.deep_db_detector_exposure_id.in_(ids[chunk:chunk + 500]), Image.product_type == product_type))})
+
+    by_image = {}  # uri -> [(job, request id, exposure, image, mjd_tai, ra, dec)], one engine call per uri
+    for j, (sd, tracklet, exposures, _gathered) in enumerate(jobs):
+        summaries[j].n_images_found = len({e.deep_db_detector_exposure_id for e in exposures} & images.keys())
+        for i, e in enumerate(exposures):
+            image = images.get(e.deep_db_detector_exposure_id)
+            if image is None:
+                continue
+            mjd_tai = float(utc_to_tai(e.midpoint_mjd))
+            ra, dec = predict(tracklet, mjd_tai)
+            request_id = f"{i:04d}_{e.deep_db_detector_exposure_id}_{j:03d}"
+            by_image.setdefault(image.uri, []).append((j, request_id, e, image, mjd_tai, float(ra), float(dec)))
+
+    def read_image(item):
+        uri, entries = item
+        requests = [PhotometryRequest(id=rid, ra=ra, dec=dec) for _j, rid, _e, _img, _t, ra, dec in entries]
+        records = {r.id: r for r in engine.measure(uri, requests, cutout_dir=cutout_dir, cutout_size=cutout_size)}
+        return entries, records
+
+    if workers > 1 and len(by_image) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            done = list(pool.map(read_image, by_image.items()))
+    else:
+        done = [read_image(item) for item in by_image.items()]
+
+    for entries, records in done:
+        for j, rid, e, image, mjd_tai, ra, dec in entries:
+            record = records[rid]
+            summaries[j].measurements.append(TrackletMeasurement(
+                deep_db_detector_exposure_id=e.deep_db_detector_exposure_id, mjd_tai=mjd_tai, ra=ra,
+                dec=dec, in_bounds=record.in_bounds, night=image.night, field=image.field, expnum=image.expnum,
+                mag=record.mag, mag_err_lo=record.mag_err_lo, mag_err_hi=record.mag_err_hi,
+                cutout_path=record.cutout_path, seen=_seen(ra, dec, mjd_tai, jobs[j][3]),
+            ))
+    for summary in summaries:
+        summary.measurements.sort(key=lambda m: m.mjd_tai)
+        # a cutout clipped by a chip edge has a different shape and can't be stacked for the coadd/movie --
+        # keep only the modal shape (matches examples/viz_result.py's original behavior)
+        shapes = [(m, fits.getdata(m.cutout_path).shape) for m in summary.measurements if m.cutout_path]
+        if shapes:
+            modal = collections.Counter(shape for _, shape in shapes).most_common(1)[0][0]
+            for m, shape in shapes:
+                if shape != modal:
+                    m.cutout_path = None
+    return summaries
+
+
 def measure_result(session, engine, sd, tracklet, exposures, gathered=(), product_type=DEFAULT_PRODUCT_TYPE,
                    cutout_dir=None, cutout_size=DEFAULT_CUTOUT_SIZE):
     """Forced photometry (+ a cutout, if ``cutout_dir`` is given) at
@@ -105,50 +177,10 @@ def measure_result(session, engine, sd, tracklet, exposures, gathered=(), produc
     ``gathered`` (the result's own observed Hough-stage detections --
     ``resolve_result()``'s own return) tags each measurement's ``seen`` (#38): whether a
     gathered point within 2" of the predicted position exists at that exposure's own time.
-    Returns a ``VizSummary`` with ``measurements`` filled in (no plots yet)."""
-    identity = ResultIdentity(source="find-asteroids", night=sd.night, provid=f"{sd.run_id} result")
-    summary = VizSummary(tracklet=identity, n_exposures_touched=len(exposures))
-    if not exposures:
-        return summary
-
-    detector_exposure_ids = [e.deep_db_detector_exposure_id for e in exposures]
-    images_by_detector_exposure = {
-        img.deep_db_detector_exposure_id: img
-        for img in session.scalars(
-            select(Image).where(
-                Image.deep_db_detector_exposure_id.in_(detector_exposure_ids), Image.product_type == product_type,
-            )
-        )
-    }
-    summary.n_images_found = len(images_by_detector_exposure)
-
-    for i, e in enumerate(exposures):
-        image = images_by_detector_exposure.get(e.deep_db_detector_exposure_id)
-        if image is None:
-            continue
-        mjd_tai = float(utc_to_tai(e.midpoint_mjd))
-        ra, dec = predict(tracklet, mjd_tai)
-        request_id = f"{i:04d}_{e.deep_db_detector_exposure_id}"
-        (record,) = engine.measure(
-            image.uri, [PhotometryRequest(id=request_id, ra=float(ra), dec=float(dec))],
-            cutout_dir=cutout_dir, cutout_size=cutout_size,
-        )
-        summary.measurements.append(TrackletMeasurement(
-            deep_db_detector_exposure_id=e.deep_db_detector_exposure_id, mjd_tai=mjd_tai, ra=float(ra),
-            dec=float(dec), in_bounds=record.in_bounds, night=image.night, field=image.field, expnum=image.expnum,
-            mag=record.mag, mag_err_lo=record.mag_err_lo, mag_err_hi=record.mag_err_hi,
-            cutout_path=record.cutout_path, seen=_seen(ra, dec, mjd_tai, gathered),
-        ))
-    summary.measurements.sort(key=lambda m: m.mjd_tai)
-
-    # a cutout clipped by a chip edge has a different shape and can't be stacked for the coadd/movie --
-    # keep only the modal shape (matches examples/viz_result.py's original behavior)
-    shapes = [(m, fits.getdata(m.cutout_path).shape) for m in summary.measurements if m.cutout_path]
-    if shapes:
-        modal = collections.Counter(shape for _, shape in shapes).most_common(1)[0][0]
-        for m, shape in shapes:
-            if shape != modal:
-                m.cutout_path = None
+    Returns a ``VizSummary`` with ``measurements`` filled in (no plots yet). One result at a
+    time; ``measure_results`` does many, reading each image once."""
+    (summary,) = measure_results(session, engine, [(sd, tracklet, exposures, gathered)], product_type=product_type,
+                                 cutout_dir=cutout_dir, cutout_size=cutout_size)
     return summary
 
 
@@ -316,17 +348,63 @@ def visualize_result(session, engine, run_id, result_num, out_dir, product_type=
     with tempfile.TemporaryDirectory(prefix="viz-result-") as cutout_dir:
         summary = measure_result(session, engine, sd, tracklet, exposures, gathered=gathered,
                                  product_type=product_type, cutout_dir=cutout_dir, cutout_size=cutout_size)
-        exposure_times = [float(utc_to_tai(e.midpoint_mjd)) for e in exposures]
-        for kind, path in (
-            ("light_curve", render_light_curve_plot(summary, out_dir, fmt=plot_format)),
-            ("coadd", render_coadd_plot(summary, out_dir, fmt=plot_format)),
-            ("coadd_seen", render_coadd_plot(summary, out_dir, fmt=plot_format, which="seen")),
-            ("coadd_unseen", render_coadd_plot(summary, out_dir, fmt=plot_format, which="unseen")),
-            ("movie", render_movie(summary, out_dir, annotate=annotate) if movie else None),
-            ("sky", render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir,
-                                    fmt=plot_format, matched=matched)),
-        ):
-            if path is not None:
-                summary.artifacts[kind] = str(path)
-    summary.sky_plot_data = (tracklet, gathered, exposure_times, matched)
+        _render_result(summary, run_id, result_num, tracklet, gathered, exposures, matched, out_dir,
+                       annotate=annotate, plot_format=plot_format, movie=movie)
     return summary
+
+
+def _render_result(summary, run_id, result_num, tracklet, gathered, exposures, matched, out_dir, annotate=None,
+                   plot_format="png", movie=True):
+    """The plots of ``visualize_result`` from an already-measured ``summary`` (its cutouts must still exist)."""
+    exposure_times = [float(utc_to_tai(e.midpoint_mjd)) for e in exposures]
+    for kind, path in (
+        ("light_curve", render_light_curve_plot(summary, out_dir, fmt=plot_format)),
+        ("coadd", render_coadd_plot(summary, out_dir, fmt=plot_format)),
+        ("coadd_seen", render_coadd_plot(summary, out_dir, fmt=plot_format, which="seen")),
+        ("coadd_unseen", render_coadd_plot(summary, out_dir, fmt=plot_format, which="unseen")),
+        ("movie", render_movie(summary, out_dir, annotate=annotate) if movie else None),
+        ("sky", render_sky_plot(run_id, result_num, tracklet, gathered, exposure_times, out_dir,
+                                fmt=plot_format, matched=matched)),
+    ):
+        if path is not None:
+            summary.artifacts[kind] = str(path)
+    summary.sky_plot_data = (tracklet, gathered, exposure_times, matched)
+
+
+def visualize_results(session, engine, run_id, result_nums, out_dir_for, product_type=DEFAULT_PRODUCT_TYPE,
+                      cutout_size=DEFAULT_CUTOUT_SIZE, annotate=None, plot_format="png", movie=True, workers=1,
+                      batch_size=16):
+    """``visualize_result`` for several results of one search: yields ``(result_num, out_dir, summary)`` for each
+    of ``result_nums`` (``summary`` is ``None`` for one that does not exist), writing each result's plots to
+    ``out_dir_for(result_num)``.
+
+    The results of a search share its images, so they are measured together, ``batch_size`` at a time, each image
+    read once per batch rather than once per result (``measure_results``; ``workers`` overlaps image reads). A
+    batch's cutouts live in one temporary directory until its results are rendered, so ``batch_size`` bounds the
+    disk and memory used."""
+    from pathlib import Path
+
+    from deep_asteroids.crossmatch.classify import matched_known_tracklet
+
+    result_nums = list(result_nums)
+    for start in range(0, len(result_nums), batch_size):
+        batch = result_nums[start:start + batch_size]
+        resolved = {n: resolve_result(session, run_id, n) for n in batch}
+        present = [n for n in batch if resolved[n] is not None]
+        for n in batch:
+            if resolved[n] is None:
+                yield n, Path(out_dir_for(n)), None
+        if not present:
+            continue
+        exposures = {n: touched_exposures(resolved[n][0], resolved[n][1]) for n in present}
+        with tempfile.TemporaryDirectory(prefix="viz-result-") as cutout_dir:
+            summaries = measure_results(
+                session, engine, [(resolved[n][0], resolved[n][1], exposures[n], resolved[n][2]) for n in present],
+                product_type=product_type, cutout_dir=cutout_dir, cutout_size=cutout_size, workers=workers)
+            for n, summary in zip(present, summaries):
+                sd, tracklet, gathered = resolved[n]
+                out_dir = Path(out_dir_for(n))
+                _render_result(summary, run_id, n, tracklet, gathered, exposures[n],
+                               matched_known_tracklet(session, tracklet.result_id), out_dir,
+                               annotate=annotate, plot_format=plot_format, movie=movie)
+                yield n, out_dir, summary

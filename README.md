@@ -647,8 +647,16 @@ result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
 deep-asteroids package result (--run-id R | --night N --field F --detector-number D [--band B]) \
     [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
     [--annotate TEMPLATE] [--force] [--putative-real [--sigma-v-threshold 0.00025]] [--dry-run] \
-    [--movie/--no-movie]
+    [--movie/--no-movie] [--workers N]
 ```
+
+**A search's results are rendered together.** A result's render reads every image it crosses (about 94 files of
+~55 MB for a CCD's night), and all of a search's results cross the same images, so the results of one search are
+measured as a batch (16 at a time): each image is opened once and cut at every result's predicted position in a
+single engine call, instead of once per result. That is ~13x fewer reads for a typical search (~13 putative-real
+results), and the output is byte-identical. `--workers N` overlaps N image reads (the engine mostly waits on
+storage). On `deep-decam-A0b-ccd41-20190402-VR`, 10 putative-real results rendered in 3m49s, where one result alone
+had taken ~6 minutes.
 
 #27's web-based interface, as a plain static site -- no server, nothing dynamic: one cached page
 per result, written to

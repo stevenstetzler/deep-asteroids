@@ -6,8 +6,12 @@
 # per run_id (one band's run_ids with >=1 putative-real result: $BAND, default VR -- the
 # band='VR' searches #28 re-executed, which need `statistics`/`crossmatch --band VR`/`dedup --band VR --force` first;
 # `BAND=none` re-renders the undefined-band legacy searches, 5,228 of them). Each task is far
-# smaller (a run_id averages ~13 putative-real results) and uses $CORES (default 8) to fan its
-# own result_nums out with xargs -P, so no single task dominates. $THROTTLE (default 50) caps
+# smaller (a run_id averages ~13 putative-real results) and renders them in ONE `package result`
+# call: a result's render reads ~94 images (~55 MB each) and a run's results all cross the same
+# images, so the run's results are measured together and each image is read once for all of them
+# (one read per run, ~13x less than one per result -- the earlier one-process-per-result version
+# starved on storage, 50 tasks x 8 workers rendering 44 pages in 90 minutes). $CORES (default 4)
+# overlaps image reads (--workers). $THROTTLE (default 50) caps
 # how many tasks run at once, keeping this considerate of shared scheduler load rather than
 # maximizing this job's own throughput.
 #
@@ -24,7 +28,7 @@
 #   DEEP_DB=/path/to/cached/deep_database.sqlite \
 #   FORCE=1 results/package_backfill_putative_real_by_run.sh
 #
-# $BAND (default VR), $CORES (default 8), $THROTTLE (the array's `%N`, default 50), $SIGMA_V_THRESHOLD (default
+# $BAND (default VR), $CORES (default 4), $THROTTLE (the array's `%N`, default 50), $SIGMA_V_THRESHOLD (default
 # 0.00015, same as package_backfill_putative_real.sh), $PARTITION/$ACCOUNT (default
 # ckpt-all/ckpt-astro), $TIME (per-task wall time, default 00:30:00 -- generous for ~13
 # results/run_id at 8-way parallelism), $WEB_DIR (default ../web), $FORCE (unset by default;
@@ -42,7 +46,7 @@ cd "$REPO_ROOT"
 : "${DEEP_DB:?Set DEEP_DB to a cached deep-db copy}"
 : "${SIGMA_V_THRESHOLD:=0.00015}"
 : "${BAND:=VR}"  # which band's searches to render; none = the undefined-band legacy ones
-: "${CORES:=8}"
+: "${CORES:=4}"
 : "${THROTTLE:=50}"
 : "${PARTITION:=ckpt-all}"
 : "${ACCOUNT:=ckpt-astro}"
@@ -67,17 +71,13 @@ if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     }
     echo "package_backfill_putative_real_by_run.sh: task $SLURM_ARRAY_TASK_ID: $run_id, job $SLURM_JOB_ID, restart count ${SLURM_RESTART_COUNT:-0}" >&2
 
-    result_nums=$(deep-asteroids query results --run-id "$run_id" --putative-real \
-        --sigma-v-threshold "$SIGMA_V_THRESHOLD" --header 2>/dev/null \
-        | tail -n +2 | awk -F'|' '{print $2}' | sort -un || true)
-    n_results=$(grep -c . <<< "$result_nums" || true)
-    echo "package_backfill_putative_real_by_run.sh: $run_id: $n_results putative-real result(s), $SLURM_CPUS_PER_TASK worker(s) (\$SLURM_CPUS_PER_TASK)" >&2
-
-    if [[ "$n_results" -gt 0 ]]; then
-        xargs -P "$SLURM_CPUS_PER_TASK" -I{} \
-            deep-asteroids package result --run-id "$run_id" --result-num {} --putative-real --no-movie \
-                --sigma-v-threshold "$SIGMA_V_THRESHOLD" --web-dir "$WEB_DIR" ${FORCE:+--force} <<< "$result_nums"
-    fi
+    # One `package result` per run_id: its putative-real results (the same cut `query results --putative-real`
+    # applies) are measured together, so each of the run's ~94 images is read once for all of them, not once
+    # per result. $SLURM_CPUS_PER_TASK overlaps image reads (--workers); the work is waiting on storage, so a
+    # few are plenty.
+    deep-asteroids package result --run-id "$run_id" --putative-real --no-movie \
+        --sigma-v-threshold "$SIGMA_V_THRESHOLD" --web-dir "$WEB_DIR" --workers "${SLURM_CPUS_PER_TASK:-1}" \
+        ${FORCE:+--force}
     echo "package_backfill_putative_real_by_run.sh: $run_id done" >&2
     exit 0
 fi
