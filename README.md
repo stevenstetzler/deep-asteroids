@@ -317,9 +317,9 @@ image cold), the search 10 s, the ingest 3 s, and the peak memory was 557 MB
 ## De-duplicating and cross-matching results
 
 ```bash
-deep-asteroids dedup [--night N ...] [--field F ...] [--run-id R ...] [--merge-radius-arcsec 2] [--force]
-deep-asteroids crossmatch [mpc-linked|mpc-observations|mpc-ephemeris|synthetic ...] [--night N ...] [--run-id R ...] \
-    [--max-sep-arcsec 30] [--submitted-radius-arcsec 2] [--known-radius-arcsec 10] [--synthetic-radius-arcsec 2] [--force]
+deep-asteroids dedup [--night N ...] [--field F ...] [--run-id R ...] [--band B] [--merge-radius-arcsec 2] [--force]
+deep-asteroids crossmatch [mpc-linked|mpc-observations|mpc-ephemeris|synthetic ...] [--night N ...] [--run-id R ...] [--band B] \
+    [--max-sep-arcsec 30] [--submitted-radius-arcsec 2] [--known-radius-arcsec 2] [--synthetic-radius-arcsec 2] [--force]
 deep-asteroids query crossmatches [--source S] [--night N] [--run-id R] [--max-mean-sep-arcsec X] [--all] \
     [--authoritative-only] [--header] [--output FILE]
 ```
@@ -459,14 +459,20 @@ without linking overcounts by 46%.
 ## Result statistics, the putative-real filter, and plots
 
 ```bash
-deep-asteroids statistics [--night N ...] [--run-id R ...] [--force]
-deep-asteroids summary [--night N ...] [--run-id R ...] [--all-results] [thresholds]
+deep-asteroids statistics [--night N ...] [--run-id R ...] [--band B] [--force]
+deep-asteroids summary [--night N ...] [--run-id R ...] [--band B] [--all-results] [thresholds]
 deep-asteroids query results [--group G] [--putative-real|--not-putative-real] [--putative-new] [--authoritative-only] \
-    [--limit N] [--header] [--output FILE] [thresholds]
-deep-asteroids plot residuals|sigma-v|magnitudes --out FILE [--night N ...] [--run-id R ...] [--all-results] [thresholds]
+    [--band B] [--limit N] [--header] [--output FILE] [thresholds]
+deep-asteroids plot residuals|sigma-v|magnitudes --out FILE [--night N ...] [--run-id R ...] [--band B] [--all-results] [thresholds]
 deep-asteroids plot completeness --out FILE [--source synthetic|mpchecker] [--min-exposure-fraction 0.5] \
-    [--radius-arcsec X] [--bin-width 0.5] [--night N ...] [--run-id R ...]
+    [--radius-arcsec X] [--bin-width 0.5] [--night N ...] [--run-id R ...] [--band B]
 ```
+
+**`--band`** restricts a command to one band's searches: `--band VR` the `band='VR'` searches, `--band none` the
+undefined-band (all-band, legacy) ones; unset, every band. The legacy and VR searches cover the same sky, so a mixed
+database double-counts objects and `dedup` clusters them together: run `dedup --force` once per band (`--band VR`, then
+`--band none`) to cluster each on its own. With a band, `plot completeness` and `missed-objects` count an object as
+recovered only by a result of that band's searches, not by any search.
 
 **`statistics`** fills `result_statistics`, one row per result, from its own gathered points and tracklet, with
 no cross-match: the **median residual** of its gathered points against its tracklet at each point's time (the

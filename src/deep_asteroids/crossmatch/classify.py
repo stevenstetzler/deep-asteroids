@@ -27,7 +27,7 @@ from find_asteroids.models import Result, Search
 from sqlalchemy import func, select
 
 from deep_asteroids.database.crossmatch import CrossmatchCandidate, ResultDedup
-from deep_asteroids.database.search import SearchDefinition
+from deep_asteroids.database.search import SearchDefinition, band_clause
 from deep_asteroids.database.statistics import ResultStatistics
 
 SUBMITTED = "submitted"
@@ -114,8 +114,9 @@ class MissingStatisticsError(ValueError):
     """Some selected results have no ``result_statistics`` row."""
 
 
-def load_results(session, nights=None, run_ids=None):
+def load_results(session, nights=None, run_ids=None, band=Ellipsis):
     """Every selected result with its statistics and closest candidate per source (not yet classified).
+    ``band`` restricts to searches of that band (``Ellipsis``: any, ``None``: the undefined-band ones).
     Raises ``MissingStatisticsError`` if any selected result lacks statistics."""
     q = (
         select(Result.id, Search.run_id, Result.result_num, SearchDefinition.night, ResultDedup.is_authoritative,
@@ -130,6 +131,8 @@ def load_results(session, nights=None, run_ids=None):
         q = q.where(SearchDefinition.night.in_(list(nights)))
     if run_ids:
         q = q.where(Search.run_id.in_(list(run_ids)))
+    if (clause := band_clause(band)) is not None:
+        q = q.where(clause)
     rows = session.execute(q.order_by(Search.run_id, Result.result_num)).all()
     missing = [r for r in rows if r[5] is None]
     if missing:

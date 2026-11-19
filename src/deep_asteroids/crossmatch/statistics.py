@@ -20,7 +20,7 @@ import numpy as np
 from find_asteroids.models import Gathered, Result, Search, Tracklet
 from sqlalchemy import delete, func, insert, select
 
-from deep_asteroids.database.search import SearchDefinition
+from deep_asteroids.database.search import SearchDefinition, band_clause
 from deep_asteroids.database.statistics import ResultStatistics
 from deep_asteroids.ingest.fit import sep_arcsec
 from deep_asteroids.ingest.tracklets import _group_median
@@ -88,15 +88,17 @@ def result_statistics_rows(result_ids, tracklets, gathered):
     return out
 
 
-def compute_result_statistics(session, nights=None, run_ids=None, force=False):
+def compute_result_statistics(session, nights=None, run_ids=None, force=False, band=Ellipsis):
     """Compute ``result_statistics`` for the selected search runs (default: every run
-    with results). Returns a ``StatisticsSummary``. Commits."""
+    with results; ``band`` restricts to one band's searches). Returns a ``StatisticsSummary``. Commits."""
     summary = StatisticsSummary()
     q = select(Search.run_id).where(Search.id.in_(select(Result.search_id)))
     if run_ids:
         q = q.where(Search.run_id.in_(list(run_ids)))
     if nights:
         q = q.where(Search.run_id.in_(select(SearchDefinition.run_id).where(SearchDefinition.night.in_(list(nights)))))
+    if (clause := band_clause(band)) is not None:
+        q = q.where(Search.run_id.in_(select(SearchDefinition.run_id).where(clause)))
     for run_id in session.scalars(q.order_by(Search.run_id)).all():
         result_ids = session.scalars(select(Result.id).join(Search, Search.id == Result.search_id)
                                      .where(Search.run_id == run_id).order_by(Result.id)).all()

@@ -33,22 +33,29 @@ def _radii(submitted, known, synthetic):
 @click.option("--merge-radius-arcsec", type=float, default=2.0, show_default=True,
               help="Results whose tracklets agree on average over the exposures to within this are redetections")
 @click.option("--force", is_flag=True, help="Redo pointing groups that are already de-duplicated")
+@click.option("--band", "band", type=str, default=None,
+              help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band")
 @click.pass_context
-def dedup(ctx, nights, fields_, run_ids, merge_radius_arcsec, force):
+def dedup(ctx, nights, fields_, run_ids, merge_radius_arcsec, force, band):
     """Group redetections of the same object among a night's results.
 
     Works per (night, field) pointing group: results whose tracklets agree
     within the merge radius form a cluster, and one member (the most
     Hough-stage points) is authoritative. Nothing is deleted or rewritten; see
-    the result_dedup table. Re-running skips groups already done unless --force."""
+    the result_dedup table. Re-running skips groups already done unless --force.
+
+    --band clusters only that band's results, so the legacy (undefined-band) and VR searches of the
+    same sky are never merged into one cluster. A database clustered across bands needs --force,
+    once per band (`--band VR`, then `--band none`)."""
     from sqlalchemy.orm import Session
 
     from deep_asteroids.crossmatch.dedup import dedup_results
     from deep_asteroids.database import create_db
+    from deep_asteroids.database.search import parse_band
 
     with Session(create_db()) as session:
         summary = dedup_results(session, nights=nights, fields=fields_, run_ids=run_ids,
-                                merge_radius_arcsec=merge_radius_arcsec, force=force)
+                                merge_radius_arcsec=merge_radius_arcsec, force=force, band=parse_band(band))
     click.echo(summary.format())
 
 
@@ -59,10 +66,12 @@ def dedup(ctx, nights, fields_, run_ids, merge_radius_arcsec, force):
 @click.option("--max-sep-arcsec", type=float, default=30.0, show_default=True,
               help="Store a candidate pair only below this mean separation over the exposures")
 @click.option("--force", is_flag=True, help="Redo runs that are already cross-matched")
+@click.option("--band", "band", type=str, default=None,
+              help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band")
 @_radius_options
 @click.pass_context
-def crossmatch(ctx, sources, nights, run_ids, max_sep_arcsec, force, submitted_radius_arcsec, known_radius_arcsec,
-               synthetic_radius_arcsec):
+def crossmatch(ctx, sources, nights, run_ids, max_sep_arcsec, force, band, submitted_radius_arcsec,
+               known_radius_arcsec, synthetic_radius_arcsec):
     """Cross-match results against the known tracklets of the same night.
 
     SOURCES (default: mpc-linked, mpc-ephemeris, synthetic): mpc-linked
@@ -77,13 +86,14 @@ def crossmatch(ctx, sources, nights, run_ids, max_sep_arcsec, force, submitted_r
 
     from deep_asteroids.crossmatch.match import DEFAULT_SOURCES, NotLinkedError, crossmatch_results, match_counts
     from deep_asteroids.database import create_db
+    from deep_asteroids.database.search import parse_band
 
     radii = _radii(submitted_radius_arcsec, known_radius_arcsec, synthetic_radius_arcsec)
     chosen = tuple(MATCH_SOURCES[s] for s in sources) if sources else DEFAULT_SOURCES
     with Session(create_db()) as session:
         try:
             summary = crossmatch_results(session, nights=nights, run_ids=run_ids, sources=chosen,
-                                         max_sep_arcsec=max_sep_arcsec, force=force)
+                                         max_sep_arcsec=max_sep_arcsec, force=force, band=parse_band(band))
         except NotLinkedError as error:
             raise click.ClickException(str(error)) from error
         counts = match_counts(session, summary.runs + summary.skipped_runs, radii) \
@@ -129,8 +139,10 @@ def link(ctx, nights, match_radius_arcsec, force):
 @click.option("--night", "nights", multiple=True, type=int, help="Only these nights (repeatable)")
 @click.option("--run-id", "run_ids", multiple=True, type=str, help="Only these search runs (repeatable)")
 @click.option("--force", is_flag=True, help="Redo runs that already have statistics")
+@click.option("--band", "band", type=str, default=None,
+              help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band")
 @click.pass_context
-def statistics(ctx, nights, run_ids, force):
+def statistics(ctx, nights, run_ids, force, band):
     """Compute per-result summary statistics (the result_statistics table).
 
     For each result: the median residual of its gathered points against its
@@ -141,7 +153,9 @@ def statistics(ctx, nights, run_ids, force):
 
     from deep_asteroids.crossmatch.statistics import compute_result_statistics
     from deep_asteroids.database import create_db
+    from deep_asteroids.database.search import parse_band
 
     with Session(create_db()) as session:
-        summary = compute_result_statistics(session, nights=nights, run_ids=run_ids, force=force)
+        summary = compute_result_statistics(session, nights=nights, run_ids=run_ids, force=force,
+                                             band=parse_band(band))
     click.echo(summary.format())
