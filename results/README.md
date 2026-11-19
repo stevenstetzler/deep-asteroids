@@ -133,3 +133,12 @@ the full-survey database (both read it read-only; see each script's docstring fo
   `missed_mpc_linked_observations.csv`: night, field, the CCD(s) the observations landed on, the searched
   chip, provid/permid/name (3,017 of 4,519 are undesignated), and each tracklet's observation count and obsids,
   taken from the merged tracklet's member trkids and matched into deep-db on `(trkid, trksub)`.
+
+## Search parity between the legacy and VR searches (#28)
+
+`legacy_vs_vr_parity.py` maps each legacy search's salad image ids (salad's Postgres must be running) to the exact
+(exposure, chip) salad searched, and compares that with the exposures the band='VR' search can search now. Over the
+survey, all 5,568 legacy runs with results have the same exposures (435,908 in total) and read the same image files,
+so there is nothing salad searched that a VR search cannot. 1,245 of those searches cover fewer exposures than their
+search definition because the Butler registry has no differenceExp for the rest; salad skipped the same ones, and
+`search run` now does too (see `search_missing_image`).
