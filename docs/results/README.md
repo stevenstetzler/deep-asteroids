@@ -9,9 +9,9 @@ ephemerides and synthetic objects. Regenerate with `results/full_survey_summary.
 ## Funnel
 
 Computed at the default radii (2" for submitted, synthetic and known) over the
-original, salad-ingested runs: the 5,568 runs that have results (their
-276,797 results). The later `-VR` re-executions (#28) are left out here for a
-like-for-like comparison; see the second table.
+original (non-`-VR`), salad-ingested runs: the 5,568 runs that have results
+(their 276,797 results). The `-VR` re-executions (#28) are not used here; the
+survey will move over to them in a later step.
 
 | group | objects | putative real | fraction |
 |---|---:|---:|---:|
@@ -34,24 +34,17 @@ crosses an ephemeris, and diverges from it, could match. Against the same
 runs at 10", only the known-dependent rows change: known 4,485 -> 4,188,
 unmatched in range 106,111 -> 106,372 and putative new 19,245 -> 19,395. The
 submitted and synthetic rows and the 66,318 putative real in total are
-unchanged. (A fresh run of the 10" funnel gives 265,215 distinct objects and 107,491
-unmatched outside the range, where an earlier version of this page had
-265,685 and 107,949; the putative-real counts match it exactly. The
-difference is in how many de-duplicated clusters fall in these runs -- the
-database now also holds the `-VR` re-executions in the same clusters --
-and was not investigated further.)
+unchanged.
 
-Including the 4,261 `-VR` re-executions (489,839 results in all, 275,393
-distinct objects), the same funnel at 2" is:
-
-| group | objects | putative real | fraction |
-|---|---:|---:|---:|
-| submitted | 35,300 | 33,869 | 95.9% |
-| synthetic | 11,857 | 9,170 | 77.3% |
-| known (mpchecker) | 4,188 | 3,885 | 92.8% |
-| unmatched (in velocity range) | 110,885 | 19,401 | 17.5% |
-| unmatched (outside velocity range) | 113,163 | 0 | 0.0% |
-| **total distinct objects** | **275,393** | **66,325** | **24.1%** |
+**Distinct objects.** This page used to report 265,685 distinct objects
+(and 107,949 unmatched outside the velocity range); a fresh run over the same
+runs gives 265,215 (and 107,491), with identical putative-real counts. De-duplication now
+clusters the `-VR` re-executions together with the original results, and a
+cluster is counted only if its authoritative result is in one of the runs
+used here. Clusters whose authoritative result is a `-VR` one are dropped even
+when an original result is a member, so the distinct-object counts here
+run about 470 (0.2%) below the original-only value. The result and
+putative-real counts are not affected.
 
 This replaces the earlier median-residual/`n_gathered` cut: salad's own
 further analysis (`docs/ANALYZE_RESULT_STATS.md` in the salad repo) found
