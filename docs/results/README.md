@@ -1,50 +1,68 @@
-# Full-survey results (#15)
+# Full-survey results (#15, #28)
 
-Summary plots and the funnel table for deep-asteroids' own ingest of the
-full survey's find-asteroids results (5,573 runs, copied from salad's
-database), crossmatched against submitted MPC observations, mpchecker
-ephemerides and synthetic objects. Regenerate with `results/full_survey_summary.sh`
-(see `results/README.md`).
+Summary plots and the funnel table for deep-asteroids' full-survey results of the **band='VR'** searches:
+5,572 searches re-executed from the Butler `differenceExp` images (#28, `results/search_backfill_vr.sh`; 5,566 have
+results), crossmatched against submitted MPC observations, mpchecker ephemerides and synthetic objects. The legacy
+(undefined-band) searches, salad's 5,573 runs copied from its database, stay in the same database and are compared
+with the VR ones below. Every stage is run per band (`--band`), so the two are never mixed. Regenerate with
+`results/full_survey_summary.sh` (see `results/README.md`).
 
 ## Funnel
 
-Computed at the default radii (2" for submitted, synthetic and known) over the
-original (non-`-VR`), salad-ingested runs: the 5,568 runs that have results
-(their 276,797 results). The `-VR` re-executions (#28) are not used here; the
-survey will move over to them in a later step.
+Computed at the default radii (2" for submitted, synthetic and known), over the VR searches:
 
 | group | objects | putative real | fraction |
 |---|---:|---:|---:|
-| submitted | 35,297 | 33,868 | 96.0% |
-| synthetic | 11,831 | 9,170 | 77.5% |
-| known (mpchecker) | 4,188 | 3,885 | 92.8% |
-| unmatched (in velocity range) | 106,372 | 19,395 | 18.2% |
-| unmatched (outside velocity range) | 107,527 | 0 | 0.0% |
-| **total distinct objects** | **265,215** | **66,318** | **25.0%** |
+| submitted | 35,299 | 33,869 | 95.9% |
+| synthetic | 11,798 | 9,167 | 77.7% |
+| known (mpchecker) | 4,189 | 3,886 | 92.8% |
+| unmatched (in velocity range) | 106,187 | 19,380 | 18.3% |
+| unmatched (outside velocity range) | 107,833 | 0 | 0.0% |
+| **total distinct objects** | **265,306** | **66,302** | **25.0%** |
 
-276,797 results in total, de-duplicated to 265,215 distinct objects.
-**Putative new** (putative real and matching nothing): 19,395. The
+275,269 results in total, de-duplicated to 265,306 distinct objects.
+**Putative new** (putative real and matching nothing): 19,380. The
 putative-real cut is **sigma_v** (the fitted tracklet's velocity
 uncertainty, `hypot(sigma_vra, sigma_vdec)`) below `0.00025` deg/day, and
 speed strictly inside the search's velocity range -- it keeps 96% of
 submitted objects, 78% of synthetic, 93% of known.
 
-**The known radius is now 2", not 10"** (#42): at 10" a track that merely
-crosses an ephemeris, and diverges from it, could match. Against the same
-runs at 10", only the known-dependent rows change: known 4,485 -> 4,188,
-unmatched in range 106,111 -> 106,372 and putative new 19,245 -> 19,395. The
-submitted and synthetic rows and the 66,318 putative real in total are
-unchanged.
+## Legacy vs VR
 
-**Distinct objects.** This page used to report 265,685 distinct objects
-(and 107,949 unmatched outside the velocity range); a fresh run over the same
-runs gives 265,215 (and 107,491), with identical putative-real counts. De-duplication now
-clusters the `-VR` re-executions together with the original results, and a
-cluster is counted only if its authoritative result is in one of the runs
-used here. Clusters whose authoritative result is a `-VR` one are dropped even
-when an original result is a member, so the distinct-object counts here
-run about 470 (0.2%) below the original-only value. The result and
-putative-real counts are not affected.
+The same funnel for the legacy searches (`--band none`), next to the VR one:
+
+| | legacy | VR | VR - legacy |
+|---|---:|---:|---:|
+| results | 276,797 | 275,269 | -1,528 |
+| distinct objects | 265,685 | 265,306 | -379 |
+| submitted | 35,298 | 35,299 | +1 |
+| synthetic | 11,838 | 11,798 | -40 |
+| known (mpchecker) | 4,189 | 4,189 | 0 |
+| unmatched (in velocity range) | 106,374 | 106,187 | -187 |
+| unmatched (outside velocity range) | 107,986 | 107,833 | -153 |
+| putative real: total | 66,318 | 66,302 | -16 |
+| putative real: submitted | 33,868 | 33,869 | +1 |
+| putative real: synthetic | 9,170 | 9,167 | -3 |
+| putative real: known | 3,885 | 3,886 | +1 |
+| putative new | 19,395 | 19,380 | -15 |
+
+The VR searches reproduce the legacy ones to well under 1% in every row. They search the same exposures
+(`results/legacy_vs_vr_parity.py`: all 435,908 exposures salad searched, on the same image files, are searched
+by VR), with the same parameters, and the detection stage agrees on 99.998% of results; the refinement stage
+differs in a minority of results (PR #45), which is where the 0.55% fewer results and the small differences above
+come from. The 1,250 searches that skipped an image (22,499 detector-exposures with no `differenceExp` in the
+Butler registry) skipped the same ones salad did.
+
+**The known radius is 2", not 10"** (#42): at 10" a track that merely crosses an ephemeris, and diverges from
+it, could match. On the VR results at 10", only the known-dependent rows change: known 4,471 -> 4,189, unmatched
+in range 105,941 -> 106,187 and putative new 19,238 -> 19,380.
+
+**Distinct objects are counted per band.** `dedup` clusters a pointing group's results, and the legacy and VR
+searches cover the same sky, so clustering them together merges the same object found by both and makes a
+band's distinct-object count depend on which band's result won the cluster (it gave 265,215 for the legacy
+searches instead of 265,685). `dedup --band B --force`, once per band, clusters each on its own: the legacy
+result above, 265,685, is the number this page has always reported (the 50 results of one run with no search
+definition count as one object each).
 
 This replaces the earlier median-residual/`n_gathered` cut: salad's own
 further analysis (`docs/ANALYZE_RESULT_STATS.md` in the salad repo) found
@@ -80,6 +98,7 @@ as a diagnostic; it is no longer the cut.
   by the 2" known radius, which does not affect the synthetic radius).
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
-via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness` and
-`deep-asteroids summary` (defaults: 2" submitted/synthetic radius, 2"
-known radius, sigma_v < 0.00025 deg/day, authoritative objects only).
+via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness --band VR` and
+`deep-asteroids summary --band VR` (`--band none` for the legacy column; defaults: 2" submitted/synthetic/known
+radius, sigma_v < 0.00025 deg/day, authoritative objects only), after `statistics`, `crossmatch` and
+`dedup --force` were run once per band.
