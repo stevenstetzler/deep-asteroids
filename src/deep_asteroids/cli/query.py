@@ -353,7 +353,7 @@ def results(ctx, nights, run_ids, groups, putative_real, putative_new, authorita
     from deep_asteroids.cli.plot import classified, make_thresholds
     from deep_asteroids.database import create_db
 
-    thresholds = make_thresholds(2.0, 2.0, 10.0, sigma_v_threshold)
+    thresholds = make_thresholds(2.0, 2.0, 2.0, sigma_v_threshold)
     with Session(create_db()) as session:
         rows = classified(session, nights, run_ids, thresholds)
     if groups:

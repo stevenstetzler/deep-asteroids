@@ -12,7 +12,7 @@ def _radius_options(f):
         click.option("--submitted-radius-arcsec", type=float, default=2.0, show_default=True,
                      help="A result matches a submitted observation (mpc_linked or mpc_observation) below this "
                           "mean separation"),
-        click.option("--known-radius-arcsec", type=float, default=10.0, show_default=True,
+        click.option("--known-radius-arcsec", type=float, default=2.0, show_default=True,
                      help="A result matches a known object (an mpchecker ephemeris) below this mean separation"),
         click.option("--synthetic-radius-arcsec", type=float, default=2.0, show_default=True,
                      help="A result matches a synthetic object below this mean separation"),

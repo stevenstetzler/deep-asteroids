@@ -142,15 +142,15 @@ def test_match_counts_objects_and_table(session):
     h.add_run(session, "run", [_result(), _result(east=0.2, n=99), _result(north=6.0)])
     h.add_run(session, "run_b", [])
     _known(session, source="mpc_linked", trkid="t")  # matches results 0 and 1
-    _known(session, source="mpchecker", north=6.0)  # 0" from result 2, and 6" (< 10") from results 0 and 1
+    _known(session, source="mpchecker", north=6.0)  # 0" from result 2 (a match); 6" (a candidate, but not < 2") from results 0 and 1
     _known(session, source="synthetic", east=20.0, orbit_id=3)  # 20": a candidate, but not a match
     crossmatch_results(session)
     dedup_results(session)  # results 0 and 1 are redetections; 1 has the most points
     counts = match_counts(session, ["run", "run_b"])
     assert counts["n_results"] == 3 and counts["n_objects"] == 2
-    assert counts["mpc_linked"] == (2, 1) and counts["mpchecker"] == (3, 2) and counts["synthetic"] == (0, 0)
+    assert counts["mpc_linked"] == (2, 1) and counts["mpchecker"] == (1, 1) and counts["synthetic"] == (0, 0)
     table = match_table(counts)
-    assert 'submitted < 2"' in table and 'known < 10"' in table and 'synthetic < 2"' in table
+    assert 'submitted < 2"' in table and 'known < 2"' in table and 'synthetic < 2"' in table
     # without de-duplication, every result is its own object
     from sqlalchemy import delete
 

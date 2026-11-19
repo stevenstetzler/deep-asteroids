@@ -8,21 +8,43 @@ ephemerides and synthetic objects. Regenerate with `results/full_survey_summary.
 
 ## Funnel
 
+Computed at the default radii (2" for submitted, synthetic and known) over the
+original (non-`-VR`), salad-ingested runs: the 5,568 runs that have results
+(their 276,797 results). The `-VR` re-executions (#28) are not used here; the
+survey will move over to them in a later step.
+
 | group | objects | putative real | fraction |
 |---|---:|---:|---:|
-| submitted | 35,298 | 33,868 | 95.9% |
-| synthetic | 11,838 | 9,170 | 77.5% |
-| known (mpchecker) | 4,487 | 4,035 | 89.9% |
-| unmatched (in velocity range) | 106,113 | 19,245 | 18.1% |
-| unmatched (outside velocity range) | 107,949 | 0 | 0.0% |
-| **total distinct objects** | **265,685** | **66,318** | **25.0%** |
+| submitted | 35,297 | 33,868 | 96.0% |
+| synthetic | 11,831 | 9,170 | 77.5% |
+| known (mpchecker) | 4,188 | 3,885 | 92.8% |
+| unmatched (in velocity range) | 106,372 | 19,395 | 18.2% |
+| unmatched (outside velocity range) | 107,527 | 0 | 0.0% |
+| **total distinct objects** | **265,215** | **66,318** | **25.0%** |
 
-276,797 results in total, de-duplicated to 265,685 distinct objects.
-**Putative new** (putative real and matching nothing): 19,245. The
-putative-real cut is now **sigma_v** (the fitted tracklet's velocity
+276,797 results in total, de-duplicated to 265,215 distinct objects.
+**Putative new** (putative real and matching nothing): 19,395. The
+putative-real cut is **sigma_v** (the fitted tracklet's velocity
 uncertainty, `hypot(sigma_vra, sigma_vdec)`) below `0.00025` deg/day, and
 speed strictly inside the search's velocity range -- it keeps 96% of
-submitted objects, 77% of synthetic, 90% of known.
+submitted objects, 78% of synthetic, 93% of known.
+
+**The known radius is now 2", not 10"** (#42): at 10" a track that merely
+crosses an ephemeris, and diverges from it, could match. Against the same
+runs at 10", only the known-dependent rows change: known 4,485 -> 4,188,
+unmatched in range 106,111 -> 106,372 and putative new 19,245 -> 19,395. The
+submitted and synthetic rows and the 66,318 putative real in total are
+unchanged.
+
+**Distinct objects.** This page used to report 265,685 distinct objects
+(and 107,949 unmatched outside the velocity range); a fresh run over the same
+runs gives 265,215 (and 107,491), with identical putative-real counts. De-duplication now
+clusters the `-VR` re-executions together with the original results, and a
+cluster is counted only if its authoritative result is in one of the runs
+used here. Clusters whose authoritative result is a `-VR` one are dropped even
+when an original result is a member, so the distinct-object counts here
+run about 470 (0.2%) below the original-only value. The result and
+putative-real counts are not affected.
 
 This replaces the earlier median-residual/`n_gathered` cut: salad's own
 further analysis (`docs/ANALYZE_RESULT_STATS.md` in the salad repo) found
@@ -54,9 +76,10 @@ as a diagnostic; it is no longer the cut.
   groups' shapes visible; middle), and each group's own fraction
   (bottom).
 - **`completeness.png`** -- recovered fraction of findable synthetic
-  objects vs. magnitude (24,845 findable, 9,022 recovered overall).
+  objects vs. magnitude (24,845 findable, 9,022 recovered overall; unchanged
+  by the 2" known radius, which does not affect the synthetic radius).
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
 via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness` and
-`deep-asteroids summary` (defaults: 2" submitted/synthetic radius, 10"
+`deep-asteroids summary` (defaults: 2" submitted/synthetic radius, 2"
 known radius, sigma_v < 0.00025 deg/day, authoritative objects only).
