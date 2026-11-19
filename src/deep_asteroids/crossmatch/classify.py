@@ -7,7 +7,7 @@ Group results by what they match, and call each putative real or not.
 * ``submitted`` if its closest linked MPC tracklet (``mpc_linked``) is within the submitted radius (2"),
 * ``synthetic`` if its closest synthetic object is within the synthetic radius (2"),
   (when it is both, the closer one),
-* else ``known`` if its closest mpchecker ephemeris is within the known radius (10"),
+* else ``known`` if its closest mpchecker ephemeris is within the known radius (2"),
 * else unmatched, ``unmatched (in velocity range)`` or ``unmatched (outside velocity range)`` according to
   whether its fitted speed ``hypot(vra, vdec)`` is inside its own search's ``(velocity_0, velocity_1)``.
 
@@ -45,7 +45,7 @@ GROUP_SOURCE = {SUBMITTED: "mpc_linked", SYNTHETIC: "synthetic", KNOWN: "mpcheck
 class Thresholds:
     submitted_radius_arcsec: float = 2.0
     synthetic_radius_arcsec: float = 2.0
-    known_radius_arcsec: float = 10.0
+    known_radius_arcsec: float = 2.0
     sigma_v_threshold: float = 0.00025  # putative real: sigma_v = hypot(sigma_vra, sigma_vdec) below this
 
     def radius(self, group):

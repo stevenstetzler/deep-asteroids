@@ -16,7 +16,7 @@ counts toward the denominator only if the search could have found it:
   not expected to find what it was not looking for).
 
 It is **recovered** if a result matched it: a ``crossmatch`` candidate for the
-object below the source's radius (2" synthetic, 10" mpchecker, 2" mpc_linked), from any search.
+object below the source's radius (2" for synthetic, mpchecker and mpc_linked), from any search.
 Its magnitude is ``known_tracklet.mag``, the median truth magnitude of its points that night
 (``NaN`` for ``mpc_linked``, which has none). An object on several searched chips is counted
 once, for the chip it spends the most exposures on. Binomial uncertainties are Wilson 68%
@@ -34,7 +34,7 @@ from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExp
 from deep_asteroids.database.tracklets import KnownTracklet
 from deep_asteroids.ingest.fit import wrap180
 
-DEFAULT_RADII = {"synthetic": 2.0, "mpchecker": 10.0, "mpc_linked": 2.0}
+DEFAULT_RADII = {"synthetic": 2.0, "mpchecker": 2.0, "mpc_linked": 2.0}
 # sources with a truth magnitude -- the others (mpc_linked) have none, so completeness_rows
 # does not require one to count an object, and its own rows carry mag=NaN
 MAGNITUDE_SOURCES = ("synthetic", "mpchecker")
