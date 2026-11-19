@@ -1,9 +1,11 @@
 """
-How much of what a search could have found did it find, as a function of magnitude.
+How much of what a search could have found did it find (#40's "known objects not found"), as a
+function of magnitude where one exists.
 
-For synthetic objects (their positions and magnitudes are exact truth) and, with
-less certainty, mpchecker's known objects. An object counts toward the
-denominator only if the search could have found it:
+For synthetic objects (their positions and magnitudes are exact truth), mpchecker's known
+objects, and submitted MPC observations (``mpc_linked``, #28's linked tracklets -- no truth
+magnitude, so these are reported as counts/a listing, not a magnitude-binned plot). An object
+counts toward the denominator only if the search could have found it:
 
 * its fitted track passes over a **searched chip** at enough of that search's
   exposures: ``min_exposure_fraction`` (default half) of them, tested
@@ -14,10 +16,11 @@ denominator only if the search could have found it:
   not expected to find what it was not looking for).
 
 It is **recovered** if a result matched it: a ``crossmatch`` candidate for the
-object below the source's radius (2" synthetic, 2" mpchecker), from any search.
-Its magnitude is ``known_tracklet.mag``, the median truth magnitude of its points
-that night. An object on several searched chips is counted once, for the chip it
-spends the most exposures on. Binomial uncertainties are Wilson 68% intervals.
+object below the source's radius (2" for synthetic, mpchecker and mpc_linked), from any search.
+Its magnitude is ``known_tracklet.mag``, the median truth magnitude of its points that night
+(``NaN`` for ``mpc_linked``, which has none). An object on several searched chips is counted
+once, for the chip it spends the most exposures on. Binomial uncertainties are Wilson 68%
+intervals.
 """
 from dataclasses import dataclass
 
@@ -31,7 +34,10 @@ from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExp
 from deep_asteroids.database.tracklets import KnownTracklet
 from deep_asteroids.ingest.fit import wrap180
 
-DEFAULT_RADII = {"synthetic": 2.0, "mpchecker": 2.0}
+DEFAULT_RADII = {"synthetic": 2.0, "mpchecker": 2.0, "mpc_linked": 2.0}
+# sources with a truth magnitude -- the others (mpc_linked) have none, so completeness_rows
+# does not require one to count an object, and its own rows carry mag=NaN
+MAGNITUDE_SOURCES = ("synthetic", "mpchecker")
 # a synthetic binary's derived centers are not objects of their own
 SYNTHETIC_COMPONENTS = ("primary", "companion")
 
@@ -88,8 +94,9 @@ def completeness_rows(session, source="synthetic", nights=None, run_ids=None, ra
     for night in sorted({r[2] for r in runs}):
         kq = select(KnownTracklet.id, KnownTracklet.epoch, KnownTracklet.ra_epoch, KnownTracklet.dec_epoch,
                     KnownTracklet.vra, KnownTracklet.vdec, KnownTracklet.mag).where(
-            KnownTracklet.source == source, KnownTracklet.night == night, KnownTracklet.epoch.is_not(None),
-            KnownTracklet.mag.is_not(None))
+            KnownTracklet.source == source, KnownTracklet.night == night, KnownTracklet.epoch.is_not(None))
+        if source in MAGNITUDE_SOURCES:
+            kq = kq.where(KnownTracklet.mag.is_not(None))
         if source == "synthetic":
             kq = kq.where(KnownTracklet.component.in_(SYNTHETIC_COMPONENTS))
         known[night] = np.array(session.execute(kq.order_by(KnownTracklet.id)).all(), dtype=float).reshape(-1, 7)
@@ -150,6 +157,69 @@ def wilson(k, n, z=1.0):
     centre = (p + z * z / (2 * n)) / denom
     half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
     return float(min(centre - half, p)), float(max(centre + half, p))
+
+
+@dataclass
+class MissedObject:
+    """One findable-but-unrecovered known object (#40), with enough identity to look it up."""
+    known_tracklet_id: int
+    source: str
+    night: int
+    run_id: str  # the searched chip it spends the most exposures on
+    mag: float  # NaN for mpc_linked (no truth magnitude)
+    speed: float
+    n_on_chip: int
+    n_exposures: int
+    label: str  # the best identity string available for this source (see `_label`)
+
+
+def _label(kt_id, source, provid, permid, name, designations, orbit_id, component, trkid):
+    """The most specific identity string available for a ``known_tracklet`` row. ``synthetic``
+    objects are identified by their deep-db orbit (no provid/name of their own); ``mpchecker`` and
+    ``mpc_linked`` by whatever designation deep-db attributes to them, falling back to the
+    linked tracklet's own ``trkid`` (#28), then the row id, when neither is available."""
+    if source == "synthetic":
+        return f"orbit {orbit_id} ({component})"
+    return permid or name or provid or designations or (f"trkid {trkid}" if trkid else f"known_tracklet {kt_id}")
+
+
+def missed_known_objects(session, source="synthetic", nights=None, run_ids=None, radius=None,
+                         min_exposure_fraction=0.5):
+    """The findable objects of ``source`` (``completeness_rows``) that were NOT recovered, each
+    with an identity label. The "check for known objects that weren't found" of #40."""
+    rows = [r for r in completeness_rows(session, source=source, nights=nights, run_ids=run_ids,
+                                         radius=radius, min_exposure_fraction=min_exposure_fraction)
+            if not r.recovered]
+    identity = {}
+    if rows:
+        ids = [r.known_tracklet_id for r in rows]
+        for chunk in range(0, len(ids), 500):
+            for row in session.execute(
+                    select(KnownTracklet.id, KnownTracklet.provid, KnownTracklet.permid, KnownTracklet.name,
+                          KnownTracklet.designations, KnownTracklet.orbit_id, KnownTracklet.component,
+                          KnownTracklet.trkid)
+                    .where(KnownTracklet.id.in_(ids[chunk:chunk + 500]))):
+                identity[row.id] = _label(row.id, source, row.provid, row.permid, row.name, row.designations,
+                                          row.orbit_id, row.component, row.trkid)
+    return [MissedObject(known_tracklet_id=r.known_tracklet_id, source=source, night=r.night, run_id=r.run_id,
+                         mag=r.mag, speed=r.speed, n_on_chip=r.n_on_chip, n_exposures=r.n_exposures,
+                         label=identity.get(r.known_tracklet_id, f"known_tracklet {r.known_tracklet_id}"))
+           for r in sorted(rows, key=lambda r: (r.night, r.run_id, r.known_tracklet_id))]
+
+
+def write_missed_csv(missed, out):
+    """Writes ``missed`` (``missed_known_objects``'s own return) to ``out`` as a CSV, one row per
+    object; returns ``out``."""
+    import csv
+
+    with open(out, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["known_tracklet_id", "source", "night", "run_id", "label", "mag", "speed",
+                         "n_on_chip", "n_exposures"])
+        for m in missed:
+            writer.writerow([m.known_tracklet_id, m.source, m.night, m.run_id, m.label, m.mag, m.speed,
+                             m.n_on_chip, m.n_exposures])
+    return out
 
 
 def bin_completeness(rows, bin_width=0.5, mag_min=None, mag_max=None):

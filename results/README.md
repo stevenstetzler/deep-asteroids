@@ -119,3 +119,17 @@ result that night, and `merge-pdfs` correctly finds zero rendered PDFs to merge 
 (its own "no empty file" rule, not a new check). If this night's data coverage improves
 upstream, re-running `package_backfill_putative_real.sh`/`merge_pdfs.sh` picks it up with no
 code changes needed.
+
+## Missed submitted (mpc_linked) tracklets (#40)
+
+Two scripts that answer why findable submitted tracklets were missed, run from a compute node against
+the full-survey database (both read it read-only; see each script's docstring for its arguments):
+
+- `mpc_linked_velocity_check.py` takes every mpc_linked tracklet whose track crosses a searched chip
+  and records whether its speed is inside a search's velocity range and whether a result matched it
+  (within 2"). Over the survey: 44,102 on searched chips, of which 41,972 are in range, and **all 4,519
+  that were missed are in range** (velocity range is not the cause). About an hour.
+- `missed_mpc_linked_observations.py` turns its missed in-range tracklets into
+  `missed_mpc_linked_observations.csv`: night, field, the CCD(s) the observations landed on, the searched
+  chip, provid/permid/name (3,017 of 4,519 are undesignated), and each tracklet's observation count and obsids,
+  taken from the merged tracklet's member trkids and matched into deep-db on `(trkid, trksub)`.
