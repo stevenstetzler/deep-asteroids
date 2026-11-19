@@ -491,11 +491,11 @@ chance alignments at every contour level tried, where `n_gathered` showed no sep
 residual, while usable, was noisier. The median residual is still computed and plotted (`plot residuals`) as a
 diagnostic; it is no longer the cut.
 
-On night 20190402 (60 searches, 3,053 results = 2,972 distinct objects), the cut keeps **100% of the submitted
-matches (329/329), 100% of the known (67/67) and 89% of the synthetic (140/158)**, the last because most of the
-18 it rejects fail the velocity cut: synthetic objects outside the search's designed speed range. Of the 1,415
-unmatched objects in range, **365 are putative new** (they peak at magnitude 23.5-24.5, faint, where objects not
-yet submitted would be); the 1,003 unmatched outside the range fail the cut by definition, and 1,982 results
+On night 20190402 (60 searches, 3,003 results = 2,970 distinct objects), the cut keeps **100% of the submitted
+matches (329/329), 100% of the known (60/60) and 89% of the synthetic (140/158)**, the last because most of the
+18 it rejects fail the velocity cut: synthetic objects outside the search's designed speed range. Of the 1,422
+unmatched objects in range, **372 are putative new** (they peak at magnitude 23.5-24.5, faint, where objects not
+yet submitted would be); the 1,001 unmatched outside the range fail the cut by definition, and 1,980 results
 fail the `sigma_v` cut in all. `summary` prints this funnel; `query results` lists the rows.
 
 **`plot`** writes PNGs (examples for the night in `docs/examples/viz/night_20190402/`): `sigma-v` (log10
@@ -509,12 +509,12 @@ truth magnitude (`known_tracklet.mag`, the median of the night's points), with W
 findable only if its track is on a searched chip (tested geometrically against each exposure's chip footprint)
 for at least half of that search's exposures *and* its speed is inside the search's range, so objects on chips,
 fields or nights that were not searched are not counted as misses; it is recovered if a crossmatch candidate
-(2" synthetic, 10" mpchecker) exists for it. For the night: **269 findable synthetic objects, 138 recovered,
+(2" synthetic, 2" mpchecker) exists for it. For the night: **269 findable synthetic objects, 138 recovered,
 ~90-100% brighter than magnitude 24, 50% at 24.4, none fainter than 25**. As a check on the geometry, of the
 158 synthetic objects some result matched, 138 are counted findable; of the other 20, 18 are outside the search's
 speed range (so excluded by design, though a search sometimes finds them) and 2 cross a chip for under half the
-exposures (for mpchecker, 297 of 300). The
-mpchecker curve (374 findable, 297 recovered, 50% at 23.6) is less certain: its magnitude is a predicted V-band
+exposures (for mpchecker, 291 of 294). The
+mpchecker curve (374 findable, 291 recovered, 50% at 23.5) is less certain: its magnitude is a predicted V-band
 `v_mag`, not the survey's band, and its ephemerides have their own uncertainty.
 
 `examples/night_summary.sh` reproduces the whole night from scratch in about a minute (it needs salad's Postgres
