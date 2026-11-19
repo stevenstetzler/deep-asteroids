@@ -38,12 +38,12 @@ def _write_fake_pdf(path):
     writer.close()
 
 
-def _setup_night(session, web_dir):
+def _setup_night(session, web_dir, run_id="run", band=None):
     """One search with a known (mpchecker) match, a synthetic match, and an unmatched
     putative-new result -- each with its own rendered PDF already on disk, as `package
-    result` would have left it."""
-    sd = h.add_definition(session, "run")
-    known_r, synth_r, new_r = h.add_run(session, "run", [
+    result` would have left it. ``band`` is the search's band (``None``: the undefined-band legacy search)."""
+    sd = h.add_definition(session, run_id, band=band)
+    known_r, synth_r, new_r = h.add_run(session, run_id, [
         {"ra": 215.0, "dec": -13.0, "vra": 0.2, "vdec": 0.05},   # known (mpchecker)
         {"ra": 215.05, "dec": -13.0, "vra": 0.25, "vdec": 0.0},  # synthetic
         {"ra": 215.0, "dec": -13.1, "vra": 0.3, "vdec": 0.02},   # unmatched, putative new
@@ -58,10 +58,10 @@ def _setup_night(session, web_dir):
 
     compute_result_statistics(session)
     crossmatch_results(session)
-    dedup_results(session)
+    dedup_results(session, band=band)
 
     for r, num in ((known_r, 0), (synth_r, 1), (new_r, 2)):
-        _write_fake_pdf(result_dir(web_dir, sd, num) / f"run-result-{num}.pdf")
+        _write_fake_pdf(result_dir(web_dir, sd, num) / f"{run_id}-result-{num}.pdf")
     return sd
 
 
@@ -69,7 +69,7 @@ def test_cli_merge_pdfs(session, tmp_path, runner):
     web_dir = tmp_path / "web"
     _setup_night(session, web_dir)
 
-    result = runner.invoke(main, ["package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT)])
+    result = runner.invoke(main, ["package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir), "--night", str(h.NIGHT)])
     assert result.exit_code == 0, result.output
     assert "3 merged PDF(s) written" in result.output
 
@@ -80,11 +80,11 @@ def test_cli_merge_pdfs(session, tmp_path, runner):
     assert len(PdfReader(str(synthetic_pdf)).pages) == 1
     assert len(PdfReader(str(putative_new_pdf)).pages) == 1
 
-    again = runner.invoke(main, ["package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT)])
+    again = runner.invoke(main, ["package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir), "--night", str(h.NIGHT)])
     assert "3 already present" in again.output and "0 merged PDF(s) written" in again.output
 
     forced = runner.invoke(main, [
-        "package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--force",
+        "package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--force",
     ])
     assert "3 merged PDF(s) written" in forced.output
 
@@ -94,7 +94,7 @@ def test_cli_merge_pdfs_narrows_by_group(session, tmp_path, runner):
     _setup_night(session, web_dir)
 
     result = runner.invoke(main, [
-        "package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "synthetic",
+        "package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "synthetic",
     ])
     assert result.exit_code == 0, result.output
     assert (web_dir / "pdfs" / str(h.NIGHT) / "synthetic.pdf").exists()
@@ -109,7 +109,7 @@ def test_cli_merge_pdfs_skips_empty_when_no_pdf_rendered(session, tmp_path, runn
     (result_dir(web_dir, sd, 1) / "run-result-1.pdf").unlink()
 
     result = runner.invoke(main, [
-        "package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "synthetic",
+        "package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "synthetic",
     ])
     assert result.exit_code == 0, result.output
     assert not (web_dir / "pdfs" / str(h.NIGHT) / "synthetic.pdf").exists()
@@ -134,14 +134,35 @@ def test_cli_merge_pdfs_authoritative_only_excludes_redetections(session, tmp_pa
     _write_fake_pdf(result_dir(web_dir, sd2, 0) / "run2-result-0.pdf")
 
     result = runner.invoke(main, [
-        "package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "mpchecker",
+        "package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "mpchecker",
     ])
     assert result.exit_code == 0, result.output
     assert len(PdfReader(str(web_dir / "pdfs" / str(h.NIGHT) / "mpchecker.pdf")).pages) == 1
 
     all_results = runner.invoke(main, [
-        "package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "mpchecker",
+        "package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir), "--night", str(h.NIGHT), "--group", "mpchecker",
         "--all-results", "--force",
     ])
     assert all_results.exit_code == 0, all_results.output
     assert len(PdfReader(str(web_dir / "pdfs" / str(h.NIGHT) / "mpchecker.pdf")).pages) == 2
+
+
+def test_cli_merge_pdfs_merges_one_band_only(session, tmp_path, runner):
+    """The same object found by a legacy (undefined-band) and a VR search: each band's merged PDFs hold its own pages."""
+    web_dir = tmp_path / "web"
+    _setup_night(session, web_dir)  # legacy
+    _setup_night(session, web_dir, run_id="run-VR", band="VR")
+
+    vr = runner.invoke(main, ["package", "merge-pdfs", "--web-dir", str(web_dir), "--night", str(h.NIGHT),
+                              "--out-dir", str(tmp_path / "vr")])  # VR is the default band
+    assert vr.exit_code == 0, vr.output
+    assert "3 merged PDF(s) written" in vr.output and "run-VR-result-0.pdf" not in vr.output
+    legacy = runner.invoke(main, ["package", "merge-pdfs", "--band", "none", "--web-dir", str(web_dir),
+                                  "--night", str(h.NIGHT), "--out-dir", str(tmp_path / "legacy")])
+    assert "3 merged PDF(s) written" in legacy.output
+    for out in ("vr", "legacy"):
+        for group in ("mpchecker", "synthetic", "putative-new"):
+            assert len(PdfReader(str(tmp_path / out / str(h.NIGHT) / f"{group}.pdf")).pages) == 1  # not 2: bands apart
+    assert runner.invoke(main, ["package", "merge-pdfs", "--band", "r", "--web-dir", str(web_dir),
+                                "--out-dir", str(tmp_path / "r")]).exit_code == 0
+    assert not (tmp_path / "r").exists()  # no search of that band: nothing written

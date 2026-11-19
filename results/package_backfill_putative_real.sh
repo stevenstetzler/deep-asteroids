@@ -76,6 +76,7 @@ cd "$(dirname "$SCRIPT_PATH")/.."
 : "${DEEP_ASTEROIDS_DB:?Set DEEP_ASTEROIDS_DB to the full-survey database}"
 : "${DEEP_DB:?Set DEEP_DB to a cached deep-db copy}"
 : "${SIGMA_V_THRESHOLD:=0.00015}"
+: "${BAND:=VR}"  # which band's results to render; none = the undefined-band legacy ones
 : "${CORES:=16}"
 : "${PARTITION:=ckpt-all}"
 : "${ACCOUNT:=ckpt-astro}"
@@ -83,7 +84,7 @@ cd "$(dirname "$SCRIPT_PATH")/.."
 : "${WEB_DIR:=$(pwd)/web}"
 : "${LOG_DIR:=$(pwd)/results/logs}"
 : "${FORCE:=}"
-export DEEP_ASTEROIDS_DB DEEP_DB SIGMA_V_THRESHOLD CORES WEB_DIR FORCE
+export DEEP_ASTEROIDS_DB DEEP_DB SIGMA_V_THRESHOLD BAND CORES WEB_DIR FORCE
 
 nights_with_putative_real() {
     # All nights with >0 putative-real results, one per line. `|| true` on the inner query:
@@ -92,7 +93,7 @@ nights_with_putative_real() {
     # expected here, not an error.
     local night n
     for night in $(deep-asteroids query searches night --header | tail -n +2 | sort -un); do
-        n=$(deep-asteroids query results --night "$night" --putative-real \
+        n=$(deep-asteroids query results --night "$night" --putative-real --band "$BAND" \
             --sigma-v-threshold "$SIGMA_V_THRESHOLD" --header 2>/dev/null | tail -n +2 | wc -l || true)
         [[ "$n" -gt 0 ]] && echo "$night"
     done
@@ -137,7 +138,7 @@ if [[ -n "${NIGHT:-}" ]]; then
 
     # `|| true`: the submitter only sbatch's nights with >0 putative-real results, but guard
     # here too -- same pipefail/set -e trap as nights_with_putative_real()'s inner query.
-    run_ids=$(deep-asteroids query results --night "$NIGHT" --putative-real \
+    run_ids=$(deep-asteroids query results --night "$NIGHT" --putative-real --band "$BAND" \
         --sigma-v-threshold "$SIGMA_V_THRESHOLD" --header 2>/dev/null \
         | awk -F'|' 'NR>1{print $1}' | sort -u || true)
     n_run_ids=$(grep -c . <<< "$run_ids" || true)

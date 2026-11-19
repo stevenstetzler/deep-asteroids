@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Enumerates the run_ids `package_backfill_putative_real_by_run.sh` (#38) submits: every
-run_id (excluding VR ones, since none of the VR batch's own results have `statistics`/
-`crossmatch`/`dedup` run on them yet -- found while sizing this very backfill, see PR #39)
+run_id of one band (``--band``, default VR; ``none`` for the undefined-band legacy searches)
 with at least one putative-real result, using the exact same classification `package result
---putative-real`/`query results --putative-real` already use.
+--putative-real`/`query results --putative-real` already use. Needs `statistics`, `crossmatch`
+and `dedup` run for that band (`dedup --band B --force`, once per band).
 
 Also excludes any ``Search.run_id`` with no matching ``search_definition.run_id`` -- a real,
 pre-existing data quirk (one row found, 2026-11: ``deep-B1b-ccd20-20190827`` in the ``search``
@@ -26,23 +26,28 @@ from sqlalchemy.orm import Session
 
 from deep_asteroids.crossmatch.classify import Thresholds, classify, load_results
 from deep_asteroids.database import get_db
-from deep_asteroids.database.search import SearchDefinition
+from deep_asteroids.database.search import SearchDefinition, band_clause, parse_band
 
 
-def putative_real_run_ids(session, sigma_v_threshold=0.00015):
-    defined = {r for r, in session.execute(select(SearchDefinition.run_id).distinct())}
-    run_ids = [r for r, in session.execute(select(Search.run_id).distinct())
-              if not r.endswith("-VR") and r in defined]
-    rows = load_results(session, run_ids=run_ids)
+def putative_real_run_ids(session, sigma_v_threshold=0.00015, band="VR"):
+    """Run_ids of ``band``'s searches (a band as ``load_results`` takes it) with a putative-real result."""
+    q = select(SearchDefinition.run_id).distinct()
+    if (clause := band_clause(band)) is not None:
+        q = q.where(clause)
+    defined = {r for r, in session.execute(q)}  # a Search.run_id with no definition cannot be packaged
+    run_ids = [r for r, in session.execute(select(Search.run_id).distinct()) if r in defined]
+    rows = load_results(session, run_ids=run_ids, band=band)
     classify(rows, Thresholds(sigma_v_threshold=sigma_v_threshold))
     return sorted({r.run_id for r in rows if r.putative_real})
 
 
 @click.command()
 @click.option("--sigma-v-threshold", type=float, default=0.00015, show_default=True)
-def main(sigma_v_threshold):
+@click.option("--band", type=str, default="VR", show_default=True,
+              help="Only this band's searches; '' / none for the undefined-band (legacy) ones")
+def main(sigma_v_threshold, band):
     with Session(get_db()) as session:
-        for run_id in putative_real_run_ids(session, sigma_v_threshold=sigma_v_threshold):
+        for run_id in putative_real_run_ids(session, sigma_v_threshold=sigma_v_threshold, band=parse_band(band)):
             click.echo(run_id)
 
 

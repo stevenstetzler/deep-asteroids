@@ -13,6 +13,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 : "${DEEP_ASTEROIDS_DB:?Set DEEP_ASTEROIDS_DB to the full-survey database}"
 : "${WEB_DIR:=$(pwd)/web}"
 : "${SIGMA_V_THRESHOLD:=0.00015}"
+: "${BAND:=VR}"  # which band's rendered PDFs to merge; none = the undefined-band legacy ones
 export DEEP_ASTEROIDS_DB
 
-deep-asteroids package merge-pdfs --web-dir "$WEB_DIR" --sigma-v-threshold "$SIGMA_V_THRESHOLD" "$@"
+deep-asteroids package merge-pdfs --web-dir "$WEB_DIR" --sigma-v-threshold "$SIGMA_V_THRESHOLD" --band "$BAND" "$@"

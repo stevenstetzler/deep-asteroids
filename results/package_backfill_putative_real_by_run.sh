@@ -3,9 +3,9 @@
 # changes (three coadd stacks, matched-trajectory overlay, grid lines, arcmin/hours units,
 # thicker translucent arrow, legend fix) without waiting on package_backfill_putative_real.sh's
 # own per-NIGHT sharding (~62 jobs, some nights taking hours) -- a job ARRAY instead, one task
-# per run_id (5,228 of them, same scope: every non-VR run_id with >=1 putative-real result;
-# VR run_ids are excluded because none of #28's own results have statistics/crossmatch/dedup
-# run on them yet, a separate gap found while sizing this very backfill). Each task is far
+# per run_id (one band's run_ids with >=1 putative-real result: $BAND, default VR -- the
+# band='VR' searches #28 re-executed, which need `statistics`/`crossmatch --band VR`/`dedup --band VR --force` first;
+# `BAND=none` re-renders the undefined-band legacy searches, 5,228 of them). Each task is far
 # smaller (a run_id averages ~13 putative-real results) and uses $CORES (default 8) to fan its
 # own result_nums out with xargs -P, so no single task dominates. $THROTTLE (default 50) caps
 # how many tasks run at once, keeping this considerate of shared scheduler load rather than
@@ -24,7 +24,7 @@
 #   DEEP_DB=/path/to/cached/deep_database.sqlite \
 #   FORCE=1 results/package_backfill_putative_real_by_run.sh
 #
-# $CORES (default 8), $THROTTLE (the array's `%N`, default 50), $SIGMA_V_THRESHOLD (default
+# $BAND (default VR), $CORES (default 8), $THROTTLE (the array's `%N`, default 50), $SIGMA_V_THRESHOLD (default
 # 0.00015, same as package_backfill_putative_real.sh), $PARTITION/$ACCOUNT (default
 # ckpt-all/ckpt-astro), $TIME (per-task wall time, default 00:30:00 -- generous for ~13
 # results/run_id at 8-way parallelism), $WEB_DIR (default ../web), $FORCE (unset by default;
@@ -41,6 +41,7 @@ cd "$REPO_ROOT"
 : "${DEEP_ASTEROIDS_DB:?Set DEEP_ASTEROIDS_DB to the full-survey database}"
 : "${DEEP_DB:?Set DEEP_DB to a cached deep-db copy}"
 : "${SIGMA_V_THRESHOLD:=0.00015}"
+: "${BAND:=VR}"  # which band's searches to render; none = the undefined-band legacy ones
 : "${CORES:=8}"
 : "${THROTTLE:=50}"
 : "${PARTITION:=ckpt-all}"
@@ -52,7 +53,7 @@ cd "$REPO_ROOT"
 : "${RUN_ID_LIST:=$REPO_ROOT/results/putative_real_run_ids.txt}"
 # Only what a worker actually needs -- plain (non-exported) shell variables don't survive
 # into an sbatch job's environment even with --export=ALL.
-export DEEP_ASTEROIDS_DB DEEP_DB SIGMA_V_THRESHOLD WEB_DIR FORCE REPO_ROOT RUN_ID_LIST
+export DEEP_ASTEROIDS_DB DEEP_DB SIGMA_V_THRESHOLD BAND WEB_DIR FORCE REPO_ROOT RUN_ID_LIST
 
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     # Worker: one array task, one run_id -- line $SLURM_ARRAY_TASK_ID of $RUN_ID_LIST, which
@@ -94,7 +95,7 @@ fi
 CANDIDATES="$REPO_ROOT/results/putative_real_run_ids.txt"
 mkdir -p "$LOG_DIR" "$(dirname "$CANDIDATES")"
 touch "$SUBMITTED_LIST"
-python3 results/list_putative_real_run_ids.py --sigma-v-threshold "$SIGMA_V_THRESHOLD" \
+python3 results/list_putative_real_run_ids.py --sigma-v-threshold "$SIGMA_V_THRESHOLD" --band "$BAND" \
     | grep -vFxf "$SUBMITTED_LIST" > "$CANDIDATES" || true
 n=$(wc -l < "$CANDIDATES")
 if [[ "$n" -eq 0 ]]; then

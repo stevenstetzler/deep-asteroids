@@ -81,7 +81,7 @@ def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_
         if putative_real:
             from deep_asteroids.cli.plot import classified, make_thresholds
 
-            thresholds = make_thresholds(2.0, 2.0, 10.0, sigma_v_threshold)
+            thresholds = make_thresholds(2.0, 2.0, 2.0, sigma_v_threshold)
             rows = classified(session, nights=None, run_ids=[sd.run_id for sd in definitions], thresholds=thresholds)
             putative_real_nums = {}
             for r in rows:
@@ -160,9 +160,12 @@ _MERGE_GROUPS = ("mpchecker", "synthetic", "putative-new")
 @click.option("--authoritative-only/--all-results", default=True, show_default=True,
               help="One page per distinct object (the authoritative result of each "
                    "de-duplication cluster), or every result including redetections")
+@click.option("--band", type=str, default="VR", show_default=True,
+              help="Merge this band's results (a band, or '' / none for the undefined-band legacy searches); "
+                   "needs `dedup --band B` run for it")
 @click.option("--force", is_flag=True, help="Re-merge (night, group) PDFs that already exist")
 @click.pass_context
-def merge_pdfs(ctx, nights, group_names, web_dir, out_dir, sigma_v_threshold, authoritative_only, force):
+def merge_pdfs(ctx, nights, group_names, web_dir, out_dir, sigma_v_threshold, authoritative_only, band, force):
     """Merge already-rendered per-result PDFs (`package result`) into one PDF per (night,
     group) under <out-dir>/<night>/<group>.pdf -- kept per-night, not one survey-wide PDF per
     group, to keep file sizes manageable (#32/#33).
@@ -182,13 +185,15 @@ def merge_pdfs(ctx, nights, group_names, web_dir, out_dir, sigma_v_threshold, au
     from deep_asteroids.cli.plot import classified, make_thresholds
     from deep_asteroids.crossmatch.classify import KNOWN, SYNTHETIC
     from deep_asteroids.database import get_db
+    from deep_asteroids.database.search import parse_band
     from deep_asteroids.search.run import resolve_search_definitions
     from deep_asteroids.web.site import result_dir
 
     web_dir = Path(web_dir)
     out_dir = Path(out_dir) if out_dir else web_dir / "pdfs"
     groups = group_names or _MERGE_GROUPS
-    thresholds = make_thresholds(2.0, 2.0, 10.0, sigma_v_threshold)
+    thresholds = make_thresholds(2.0, 2.0, 2.0, sigma_v_threshold)
+    band = parse_band(band)
 
     def matches(r, group):
         if group == "mpchecker":
@@ -201,15 +206,11 @@ def merge_pdfs(ctx, nights, group_names, web_dir, out_dir, sigma_v_threshold, au
     with Session(get_db()) as session:
         selected_nights = nights or sorted({sd.night for sd in resolve_search_definitions(session)})
         for night in selected_nights:
-            sds = {sd.run_id: sd for sd in resolve_search_definitions(session, night=night)}
-            # VR run_ids still lack statistics/crossmatch/dedup; a `nights=[night]` filter would pull
-            # them in too and fail the whole night with MissingStatisticsError, so scope to the
-            # putative-real groups' own (non-VR) run_ids instead.
-            non_vr_run_ids = [run_id for run_id in sds if not run_id.endswith("-VR")]
-            if not non_vr_run_ids:
+            sds = {sd.run_id: sd for sd in resolve_search_definitions(session, night=night, band=band)}
+            if not sds:
                 continue
             try:
-                rows = classified(session, nights=None, run_ids=non_vr_run_ids, thresholds=thresholds)
+                rows = classified(session, nights=None, run_ids=list(sds), thresholds=thresholds, band=band)
             except click.ClickException:
                 continue  # no results (or none with statistics) for this night
             if authoritative_only:

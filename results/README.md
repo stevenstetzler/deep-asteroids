@@ -44,15 +44,19 @@ this is a job **array** -- one task per run_id, `$THROTTLE` (default 16) concurr
 -- rather than the per-night `xargs` fan-out `package_backfill_putative_real.sh` uses.
 `list_vr_run_ids.py` selects exactly the run_ids in scope: every `band='VR'` search definition
 whose `(night, field, detector)` already has a searched `band IS NULL` one (the same searches
-we have salad-copied results for), further restricted to ones whose every exposure already has
-a `differenceExp` image ingested (`search run` has no partial-coverage tolerance -- a single
-missing image fails the whole search outright). Checked against the real database: 4,261 of
-5,572 in-scope searches qualify; the other 1,311 have a real image-coverage gap (not every
-planned detector-exposure was actually observed/calibrated that night) and are skipped rather
-than submitted as guaranteed failures.
+we have salad-copied results for), restricted to ones with at least `$MIN_COVERAGE` (default 0, never
+fewer than two exposures) of their exposures imaged. `search run` searches the exposures that have a
+`differenceExp` image and records each one that does not in `search_missing_image`, the way salad did:
+of the 1,311 searches that lacked an image, 1,244 had been searched by salad on exactly the images
+that exist (the Butler registry has no `differenceExp` for the rest under any run), and the 61 for night
+20190401 field A0a (all of them) are in a collection the field's own chain does not include
+(`DEEP/20190401/diff_drp`; `ingest images --fallback-collection 'DEEP/{night}/diff_drp'`). All 5,572 in-scope
+searches have now been run, 1,250 of them on fewer exposures than their definition lists (22,499
+detector-exposures in all), and `legacy_vs_vr_parity.py` (below) shows that is what salad searched.
 
-Calibrated (12 real searches, 10 succeeded) at ~51.6s wall/search on 4 CPUs -- ~3.8h total wall
-time and ~244 core-hours at the defaults. Preemptible/requeue-safe the same way the PDF
+Calibrated (12 real searches) at ~51.6s wall/search on 4 CPUs -- ~3.8h total wall
+time and ~244 core-hours at the defaults for the first 4,261; the remaining 1,311 (more exposures per
+search on a busier node) took ~8 minutes per task at 16 concurrent, ~11 hours wall in four shards of at most 400. Preemptible/requeue-safe the same way the PDF
 backfill is (`--requeue`, `--open-mode=append`, a restart-count log line per task); #37's
 atomic-commit fix means a requeued or resubmitted task is always either fully done or not
 started at all.
@@ -69,7 +73,7 @@ source /gscratch/dirac/DEEP/data/credentials \
 
 From a login node (it only submits `sbatch` jobs, does no rendering itself):
 submits one `sbatch` job per night that has at least one putative-real
-result at `sigma_v < 0.00015` (`$SIGMA_V_THRESHOLD` overrides), each
+result of `$BAND` (default VR; `none` for the legacy searches) at `sigma_v < 0.00015` (`$SIGMA_V_THRESHOLD` overrides), each
 rendering that night's results (`deep-asteroids package result
 --putative-real --no-movie` -- no movies, to keep storage down: see PR #33)
 across `$CORES` (default 16) workers on `-p ckpt-all -A ckpt-astro`
@@ -88,6 +92,11 @@ requeue, or resubmission only (re)does whatever didn't finish --
 `index.html` itself is written via a temp file + atomic rename, so a
 mid-render kill never leaves a truncated one behind that a later run
 would mistake for "done".
+
+The per-night script above is the original; `package_backfill_putative_real_by_run.sh` is the
+per-run_id array version (#38) and the one to use now. Both take `$BAND` (default VR), and `$WEB_DIR`
+decides where the pages go -- point it outside the repository for a full backfill, since only a handful
+of `web/` files are tracked as examples.
 
 ## Merging PDFs by group (#32/#33)
 
@@ -108,17 +117,13 @@ Extra arguments (e.g. `--night`, `--group`, `--force`) pass straight through to
 nights and it only (re)does `(night, group)` pairs that changed or weren't done yet (same
 cache-by-output-file-existence convention as `package result`).
 
-**Night 20190401 has no merged PDFs at all (#38), and that's correct, not a bug.** It has
-normal amounts of ingested metadata (496 search definitions, 3,050 results, all with
-statistics/dedup/crossmatch already run), but only 149 `Image` rows ingested survey-wide for
-the whole night (vs. ~7,000 for neighboring nights 20190402/20190403) -- `ingest images`
-genuinely found almost no calibrated `differenceExp` products for it in the Butler registry.
-With no images, forced photometry finds nothing to measure at any predicted position, so
-`package result` renders `sky.png` (needs only the DB) but no coadd/light-curve/PDF for any
-result that night, and `merge-pdfs` correctly finds zero rendered PDFs to merge and skips it
-(its own "no empty file" rule, not a new check). If this night's data coverage improves
-upstream, re-running `package_backfill_putative_real.sh`/`merge_pdfs.sh` picks it up with no
-code changes needed.
+**Night 20190401 had no merged PDFs (#38) because its images were not ingested, not because they do
+not exist.** Only 149 `Image` rows had been ingested for the whole night (vs. ~7,000 for neighbouring
+nights): `ingest images` looks in each field's own collection chain (`DEEP/<night>/<field>`), and
+20190401's `differenceExp` products are in a sibling collection, `DEEP/20190401/diff_drp` (the fields' own
+chains stop at `science#step1`). `ingest images --fallback-collection 'DEEP/{night}/diff_drp'` ingested them
+(6,764 images), the same images salad searched, so that night's searches run and its results render like
+any other night's.
 
 ## Missed submitted (mpc_linked) tracklets (#40)
 
