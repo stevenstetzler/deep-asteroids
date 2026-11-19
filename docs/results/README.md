@@ -58,5 +58,5 @@ as a diagnostic; it is no longer the cut.
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
 via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness` and
-`deep-asteroids summary` (defaults: 2" submitted/synthetic radius, 10"
+`deep-asteroids summary` (defaults: 2" submitted/synthetic radius, 2"
 known radius, sigma_v < 0.00025 deg/day, authoritative objects only).

@@ -31,7 +31,7 @@ from deep_asteroids.database.tracklets import SOURCES, KnownTracklet
 
 DEFAULT_MAX_SEP_ARCSEC = 30.0
 # a result counts as a match of its source when the closest candidate is below this mean separation
-DEFAULT_MATCH_RADII = {"mpc_linked": 2.0, "mpc_observation": 2.0, "synthetic": 2.0, "mpchecker": 10.0}
+DEFAULT_MATCH_RADII = {"mpc_linked": 2.0, "mpc_observation": 2.0, "synthetic": 2.0, "mpchecker": 2.0}
 LABELS = {
     "mpc_linked": "submitted", "mpc_observation": "submitted (unlinked)", "mpchecker": "known",
     "synthetic": "synthetic",

@@ -352,7 +352,7 @@ minimum, maximum and total separation and the velocity difference: all
 candidates, not just the closest, since one result often matches both a
 submitted tracklet and an ephemeris. The printed table counts the results
 whose closest candidate of each source is within that source's radius
-(submitted 2", known 10", synthetic 2"), and how many of them are distinct
+(submitted 2", known 2", synthetic 2"), and how many of them are distinct
 (authoritative) objects. `query crossmatches` prints the closest candidate of
 each source for each result (`--all` for every stored one).
 
@@ -479,7 +479,7 @@ median residual are **identical for all 200** (the residual bit-for-bit).
 
 **Groups and the putative-real cut** (`crossmatch/classify.py`, salad's). Each result is in exactly one group:
 `submitted` (a linked MPC tracklet within 2"), `synthetic` (within 2"; the closer wins if both),
-`known` (an mpchecker ephemeris within 10"), else unmatched, split by whether its speed is inside its search's
+`known` (an mpchecker ephemeris within 2"), else unmatched, split by whether its speed is inside its search's
 velocity range. A result is **putative real** if its `sigma_v` (`hypot(sigma_vra, sigma_vdec)`, the fitted
 tracklet's velocity uncertainty) is below `0.00025` deg/day and its speed is strictly inside the search's range;
 **putative new** is putative real and unmatched. Every threshold is an option. Objects are counted as the

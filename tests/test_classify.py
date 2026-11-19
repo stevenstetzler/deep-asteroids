@@ -42,9 +42,9 @@ def test_groups_follow_the_closest_match_within_each_radius():
         row(best={"synthetic": 1.5}),                                   # synthetic
         row(best={"mpc_linked": 1.9, "synthetic": 0.5}),                # both within 2": the closer
         row(best={"mpc_linked": 0.5, "synthetic": 1.0}),
-        row(best={"mpc_linked": 2.5, "mpchecker": 9.0}),                # submitted too far; known within 10"
+        row(best={"mpc_linked": 2.5, "mpchecker": 1.8}),                # submitted too far; known within 2"
         row(best={"mpchecker": 1.0, "mpc_linked": 0.9}),                # known is closer, but submitted outranks it
-        row(best={"mpc_linked": 3.0, "mpchecker": 11.0}),               # nothing within radius
+        row(best={"mpc_linked": 3.0, "mpchecker": 2.5}),                # nothing within radius
         row(best={}, speed=0.7),                                        # unmatched, outside the velocity range
     ])
     assert [r.group for r in rows] == [SUBMITTED, SYNTHETIC, SYNTHETIC, SUBMITTED, KNOWN, SUBMITTED, UNMATCHED_IN,

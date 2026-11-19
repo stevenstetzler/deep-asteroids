@@ -18,7 +18,7 @@ def _thresholds(f):
     for option in reversed([
         click.option("--submitted-radius-arcsec", type=float, default=2.0, show_default=True),
         click.option("--synthetic-radius-arcsec", type=float, default=2.0, show_default=True),
-        click.option("--known-radius-arcsec", type=float, default=10.0, show_default=True),
+        click.option("--known-radius-arcsec", type=float, default=2.0, show_default=True),
         click.option("--sigma-v-threshold", type=float, default=0.00025, show_default=True,
                      help="Putative real: sigma_v = hypot(sigma_vra, sigma_vdec) below this"),
     ]):
@@ -110,7 +110,7 @@ def magnitudes(ctx, out, bin_width, nights, run_ids, authoritative_only, **kw):
 @plot.command()
 @click.option("--out", required=True, type=click.Path(dir_okay=False), help="PNG to write")
 @click.option("--source", type=click.Choice(["synthetic", "mpchecker"]), default="synthetic", show_default=True)
-@click.option("--radius-arcsec", type=float, default=None, show_default="2 for synthetic, 10 for mpchecker",
+@click.option("--radius-arcsec", type=float, default=None, show_default="2 for synthetic and mpchecker",
               help="An object is recovered if a result matches it within this mean separation")
 @click.option("--min-exposure-fraction", type=float, default=0.5, show_default=True,
               help="An object is findable if it is on a searched chip for at least this fraction of the search's exposures")
