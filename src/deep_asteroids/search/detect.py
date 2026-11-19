@@ -28,6 +28,7 @@ from deep_asteroids.database.images import Image
 log = logging.getLogger(__name__)
 
 PRODUCT_TYPE = "differenceExp"
+MIN_EXPOSURES = 2  # a search needs at least two times to see anything move
 CATALOG_NAME = re.compile(r"^\d+\.ecsv$")
 
 
@@ -36,7 +37,8 @@ class DetectSummary:
     n_written: int = 0
     n_skipped: int = 0
     n_detections: int = 0  # across the catalogs written (not the skipped ones)
-    paths: list = field(default_factory=list)
+    paths: list = field(default_factory=list)  # one catalog per exposure that has an image
+    missing: list = field(default_factory=list)  # detector-exposure ids with no image: not searched
 
 
 def default_catalog_dir():
@@ -69,12 +71,17 @@ def _write_catalog(table, path):
 
 
 def detect_exposures(session, search_definition, catalog_dir, detector, workers=None, force=False,
-                     product_type=PRODUCT_TYPE):
+                     product_type=PRODUCT_TYPE, min_coverage=0.0):
     """Write a catalog for each of ``search_definition``'s exposures that
     lacks one. ``detector`` has ``detect(uri) -> Table`` (see
     ``util/detect.py``) and ``threshold``/``polarity`` attributes. Runs up to
-    ``workers`` detections at once (default: the Slurm allocation). Raises if
-    an exposure has no ``image`` row (run ``ingest images`` first)."""
+    ``workers`` detections at once (default: the Slurm allocation).
+
+    An exposure with no ``image`` row is skipped and listed in ``summary.missing`` -- the search
+    then runs on the remaining exposures, which is what salad's searches did when the Butler repo
+    lacked an image (not every planned detector-exposure was differenced). It raises instead if
+    fewer than ``MIN_EXPOSURES`` exposures have an image, or fewer than ``min_coverage`` (a
+    fraction, 0-1) of them do; images that were never ingested are fixed with ``ingest images``."""
     catalog_dir = Path(catalog_dir)
     catalog_dir.mkdir(parents=True, exist_ok=True)
     exposures = list(search_definition.exposures)
@@ -85,15 +92,22 @@ def detect_exposures(session, search_definition, catalog_dir, detector, workers=
             Image.deep_db_detector_exposure_id.in_(ids), Image.product_type == product_type))
     }
     missing = sorted(set(ids) - set(images))
-    if missing:
+    available = [i for i in ids if i in images]
+    coverage = len(available) / len(ids) if ids else 0.0
+    if missing and (len(available) < MIN_EXPOSURES or coverage < min_coverage):
         raise ValueError(
-            f"{search_definition.run_id}: no {product_type} image for detector-exposure(s) "
-            f"{missing[:5]}{' ...' if len(missing) > 5 else ''} -- run `ingest images` first"
+            f"{search_definition.run_id}: no {product_type} image for {len(missing)} of {len(ids)} "
+            f"detector-exposure(s), e.g. {missing[:5]}{' ...' if len(missing) > 5 else ''} "
+            f"({coverage:.0%} covered; need at least {MIN_EXPOSURES} exposures and {min_coverage:.0%}) "
+            "-- run `ingest images` first"
         )
+    if missing:
+        log.warning("%s: searching %d of %d exposures; no %s image for detector-exposure(s) %s",
+                    search_definition.run_id, len(available), len(ids), product_type, missing)
 
-    summary = DetectSummary(paths=[catalog_path(catalog_dir, i) for i in ids])
+    summary = DetectSummary(paths=[catalog_path(catalog_dir, i) for i in available], missing=missing)
     todo = []
-    for i, path in zip(ids, summary.paths):
+    for i, path in zip(available, summary.paths):
         if path.exists() and not force:
             summary.n_skipped += 1
         else:

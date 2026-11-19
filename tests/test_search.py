@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from deep_asteroids.database import create_db
 from deep_asteroids.database.images import Image
 from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure
-from deep_asteroids.database.search_run import SearchRun
+from deep_asteroids.database.search_run import SearchMissingImage, SearchRun
 from deep_asteroids.search.catalog import build_catalog
 from deep_asteroids.search.detect import catalog_path, detect_exposures, remove_catalogs
 from deep_asteroids.search.run import resolve_search_definitions, run_search_for_definition
@@ -158,10 +158,26 @@ def test_detect_exposures_is_idempotent(session, definition, detector, tmp_path)
     assert forced.n_written == N_EXPOSURES
 
 
-def test_detect_exposures_needs_images(session, definition, detector, tmp_path):
-    session.delete(session.scalars(select(Image).where(Image.expnum == 5003)).one())
+def _drop_images(session, *expnums):
+    for expnum in expnums:
+        session.delete(session.scalars(select(Image).where(Image.expnum == expnum)).one())
     session.commit()
-    with pytest.raises(ValueError, match="no differenceExp image.*1003.*ingest images"):
+
+
+def test_detect_exposures_skips_missing_images(session, definition, detector, tmp_path):
+    _drop_images(session, 5003)
+    summary = detect_exposures(session, definition, tmp_path / "cat", detector)
+    assert summary.missing == [1003] and summary.n_written == N_EXPOSURES - 1
+    assert len(summary.paths) == N_EXPOSURES - 1 and catalog_path(tmp_path / "cat", 1003) not in summary.paths
+    assert len(detector.calls) == N_EXPOSURES - 1
+
+
+def test_detect_exposures_needs_enough_images(session, definition, detector, tmp_path):
+    _drop_images(session, 5003)
+    with pytest.raises(ValueError, match=r"no differenceExp image for 1 of 12.*1003.*92% covered.*ingest images"):
+        detect_exposures(session, definition, tmp_path, detector, min_coverage=1.0)
+    _drop_images(session, *[5000 + i for i in range(N_EXPOSURES) if i not in (3, 4)])  # only exposure 4 is left
+    with pytest.raises(ValueError, match="need at least 2 exposures"):
         detect_exposures(session, definition, tmp_path, detector)
 
 
@@ -307,3 +323,35 @@ def test_cli_search_run_and_detect(definition, monkeypatch, tmp_path):
     assert not list(cat.glob("*.ecsv"))
     again = runner.invoke(main, ["search", "run", "--run-id", RUN_ID, "--catalog-dir", str(cat)])
     assert "skipped" in again.output
+
+
+def test_run_search_on_the_exposures_that_have_images(session, definition, detector, tmp_path):
+    from find_asteroids.models import Result, Tracklet
+
+    _drop_images(session, 5003)
+    summary = run_search_for_definition(session, definition, tmp_path / "cat", detector, workers=2, **SEARCH)
+    assert summary.ran and summary.n_exposures == N_EXPOSURES - 1 and summary.n_missing == 1
+    assert "1 more had no image and were skipped" in summary.format()
+    assert summary.n_detections == (N_EXPOSURES - 1) * 21
+
+    row = session.scalars(select(SearchRun)).one()
+    assert row.n_exposures == N_EXPOSURES - 1  # exposures searched, not the definition's twelve
+    missing = session.scalars(select(SearchMissingImage)).all()
+    assert [(m.run_id, m.deep_db_detector_exposure_id, m.expnum) for m in missing] == [(RUN_ID, 1003, 5003)]
+
+    best = session.scalars(select(Result).where(Result.result_num == 0)).one()
+    assert best.n >= N_EXPOSURES - 2  # the mover is still found, in the eleven exposures searched
+    t = session.scalars(select(Tracklet).where(Tracklet.result_id == best.id)).one()
+    assert t.vra == pytest.approx(MOVER["vra"], abs=0.01) and t.vdec == pytest.approx(MOVER["vdec"], abs=0.01)
+
+    # --force replaces the run and its missing-image rows rather than duplicating them
+    run_search_for_definition(session, definition, tmp_path / "cat", detector, workers=2, force=True, **SEARCH)
+    assert len(session.scalars(select(SearchMissingImage)).all()) == 1
+
+
+def test_run_search_below_min_coverage_is_refused(session, definition, detector, tmp_path):
+    _drop_images(session, 5003)
+    with pytest.raises(ValueError, match="92% covered"):
+        run_search_for_definition(session, definition, tmp_path / "cat", detector, workers=2,
+                                  min_coverage=0.95, **SEARCH)
+    assert session.scalars(select(SearchRun)).first() is None and session.scalars(select(SearchMissingImage)).first() is None

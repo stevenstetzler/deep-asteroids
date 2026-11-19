@@ -23,7 +23,7 @@ import numpy as np
 from sqlalchemy import select
 
 from deep_asteroids.database.search import SearchDefinition
-from deep_asteroids.database.search_run import SearchRun
+from deep_asteroids.database.search_run import SearchMissingImage, SearchRun
 from deep_asteroids.ingest.results import ingest_results_dir
 from deep_asteroids.search.catalog import build_catalog
 from deep_asteroids.search.detect import allocated_cpus, detect_exposures, remove_catalogs
@@ -45,7 +45,8 @@ DEFAULT_SEED = 0
 class SearchRunSummary:
     run_id: str
     ran: bool = False  # False: skipped, its run_id already has a search row
-    n_exposures: int = 0
+    n_exposures: int = 0  # exposures searched
+    n_missing: int = 0  # exposures of the definition skipped for lack of an image
     n_detections: int = 0
     n_results: int = 0
     n_catalogs_written: int = 0
@@ -59,7 +60,8 @@ class SearchRunSummary:
             return f"{self.run_id}: skipped (already searched; --force to replace)"
         lines = [
             f"{self.run_id}: {self.n_results} result(s) from {self.n_detections:,} detection(s) "
-            f"in {self.n_exposures} exposure(s)",
+            f"in {self.n_exposures} exposure(s)"
+            + (f" ({self.n_missing} more had no image and were skipped)" if self.n_missing else ""),
             f"  detect {self.detect_seconds:.1f} s ({self.n_catalogs_written} catalog(s) written), "
             f"search {self.search_seconds:.1f} s, ingest {self.ingest_seconds:.1f} s",
         ]
@@ -116,7 +118,7 @@ def run_search_for_definition(
     session, search_definition, catalog_dir, detector, velocity=DEFAULTS["velocity"],
     angle=DEFAULTS["angle"], dx=DEFAULTS["dx"], num_results=DEFAULTS["num_results"],
     refine_iterations=DEFAULTS["refine_iterations"], seed=DEFAULT_SEED,
-    workers=None, force=False, remove_catalogs_after=False,
+    workers=None, force=False, remove_catalogs_after=False, min_coverage=0.0,
 ):
     """Detect (any missing catalogs), search and ingest ``search_definition``
     under its ``run_id``. Returns a ``SearchRunSummary``. Commits once, atomically: its
@@ -130,7 +132,10 @@ def run_search_for_definition(
     Skips a run_id that already has a ``search`` row unless ``force``, which
     deletes its rows first. With ``remove_catalogs_after``, deletes this
     search's catalog files (exactly those, see ``remove_catalogs``) once its
-    results are committed; a skipped or failed run deletes nothing."""
+    results are committed; a skipped or failed run deletes nothing.
+
+    An exposure with no image is left out of the search and recorded in ``search_missing_image``
+    (see ``detect_exposures``; ``min_coverage`` sets the fraction of exposures that must have one)."""
     from find_asteroids.models import Result, Search
     from find_asteroids.search import run_search
 
@@ -141,11 +146,14 @@ def run_search_for_definition(
         return summary
 
     started = time.monotonic()
-    detected = detect_exposures(session, search_definition, catalog_dir, detector, workers=workers, force=False)
+    detected = detect_exposures(session, search_definition, catalog_dir, detector, workers=workers, force=False,
+                                min_coverage=min_coverage)
     summary.detect_seconds = time.monotonic() - started
+    summary.n_missing = len(detected.missing)
+    summary.n_exposures = len(search_definition.exposures) - summary.n_missing
     summary.n_catalogs_written = detected.n_written
 
-    catalog = build_catalog(search_definition, catalog_dir)
+    catalog = build_catalog(search_definition, catalog_dir, skip=detected.missing)
     summary.n_detections = len(catalog.table)
 
     import numba
@@ -183,6 +191,10 @@ def run_search_for_definition(
         from sqlalchemy import delete
 
         session.execute(delete(SearchRun).where(SearchRun.run_id == run_id))
+        session.execute(delete(SearchMissingImage).where(SearchMissingImage.run_id == run_id))
+    expnums = {e.deep_db_detector_exposure_id: e.expnum for e in search_definition.exposures}
+    session.add_all(SearchMissingImage(run_id=run_id, deep_db_detector_exposure_id=i, expnum=expnums.get(i))
+                    for i in detected.missing)
     session.add(SearchRun(
         run_id=run_id, seed=seed,
         threshold=detector.threshold, polarity=detector.polarity, n_exposures=summary.n_exposures,

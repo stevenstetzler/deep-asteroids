@@ -85,6 +85,7 @@ class ImageSummary:
     n_written: int = 0
     n_duplicates_resolved: int = 0
     n_unmatched: int = 0
+    n_from_fallback: int = 0
 
     def format(self):
         header = (
@@ -96,6 +97,8 @@ class ImageSummary:
             lines.append(f"  {self.n_written:,} image(s) written")
             if self.n_duplicates_resolved:
                 lines.append(f"  {self.n_duplicates_resolved:,} duplicate (visit, detector) pair(s) resolved")
+            if self.n_from_fallback:
+                lines.append(f"  {self.n_from_fallback:,} image(s) came from a fallback collection")
             if self.n_unmatched:
                 lines.append(
                     f"  {self.n_unmatched:,} registry row(s) had no matching deep-db detector-exposure -- skipped"
@@ -139,11 +142,15 @@ def _deep_db_detector_exposures(deep_engine, night, field):
             for expnum, detector_number, exposure_id, detector_exposure_id in rows}
 
 
-def _root_collection_id(conn, night, field):
+def _collection_id(conn, name):
+    """The CHAINED collection called ``name``, or ``None``."""
     return conn.execute(
-        text("SELECT collection_id FROM collection WHERE name = :name AND type = 3"),
-        {"name": f"DEEP/{night}/{field}"},
+        text("SELECT collection_id FROM collection WHERE name = :name AND type = 3"), {"name": name},
     ).scalar_one_or_none()
+
+
+def _root_collection_id(conn, night, field):
+    return _collection_id(conn, f"DEEP/{night}/{field}")
 
 
 def _tag_association_table(conn, product_type):
@@ -207,14 +214,21 @@ def _scan_one_group(conn, product_type, table, root_collection_id, visits):
 
 
 def ingest_images(session, deep_engine, registry_uri, repo_dir, product_types, nights=None, fields=None,
-                  force=False, deep_db_sha=None):
+                  force=False, deep_db_sha=None, fallback_collections=()):
     """Ingest image URIs for every ``(night, field)`` pointing group
     deep-db has (optionally filtered by ``nights``/``fields``) and each of
     ``product_types``. ``repo_dir`` is the Butler repo root the registry's
     ``path`` column is relative to (e.g. ``/gscratch/dirac/DEEP/repo``) --
     joined with each row's ``path`` to make a directly-openable URI, the
     same convention salad's ``DeepDecamImageIngestor`` uses. Returns an
-    ``ImageSummary``. Commits."""
+    ``ImageSummary``. Commits.
+
+    ``fallback_collections`` are CHAINED collection names (``{night}`` and ``{field}`` are filled in) that
+    are scanned *after* the pointing group's own ``DEEP/<night>/<field>`` chain, and only for the
+    ``(visit, detector)`` pairs it did not provide. Some nights keep their difference images in a
+    sibling collection that the field's chain does not include -- e.g. night 20190401's
+    ``DEEP/20190401/diff_drp``, which holds every one of that night's ``differenceExp`` images.
+    A name that is not in the registry (most nights have no such collection) is skipped."""
     from pathlib import Path
 
     repo_dir = Path(repo_dir)
@@ -254,6 +268,18 @@ def ingest_images(session, deep_engine, registry_uri, repo_dir, product_types, n
                         continue
                     rows, n_dup = _scan_one_group(conn, product_type, table, root_collection_id, visits)
                     summary.n_duplicates_resolved += n_dup
+                    have = {(visit, detector) for visit, detector, _ in rows}
+                    for template in fallback_collections:
+                        name = template.format(night=night, field=field_name)
+                        fallback_id = _collection_id(conn, name)
+                        if fallback_id is None:
+                            continue
+                        extra, n_dup = _scan_one_group(conn, product_type, table, fallback_id, visits)
+                        extra = [row for row in extra if (row[0], row[1]) not in have]
+                        summary.n_duplicates_resolved += n_dup
+                        summary.n_from_fallback += len(extra)
+                        have.update((visit, detector) for visit, detector, _ in extra)
+                        rows = rows + extra
                     for visit, detector, path in rows:
                         identity = lookup.get((visit, detector))
                         if identity is None:
