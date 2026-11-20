@@ -168,7 +168,7 @@ def _render_table_page(out_path, title, up_href, columns, rows, empty_message):
     return out_path
 
 
-def build_site_index(session, web_dir):
+def build_site_index(session, web_dir, nights=None):
     """(Re)writes every index page above the leaf: ``web_dir/index.html`` (nights), then
     one page per night (fields), per (night, field) (CCDs), per (night, field,
     detector_number) (bands/searches), and per `search_definition` (results) -- straight
@@ -176,7 +176,8 @@ def build_site_index(session, web_dir):
     each), but `_render_table_page()` skips the write itself if nothing actually changed, so
     a re-run only touches disk for pages whose underlying data is different. Returns every
     page's path regardless (whether its write was skipped or not) -- the full site, not just
-    what changed this call."""
+    what changed this call. ``nights`` restricts the pages below the top one to those nights
+    (the top page always lists every night)."""
     web_dir = Path(web_dir)
     paths = []
 
@@ -189,6 +190,8 @@ def build_site_index(session, web_dir):
         "No nights ingested yet (run `ingest searches` first)."))
 
     for night, *_ in night_rows:
+        if nights and night not in nights:
+            continue
         field_rows = fields_rows(session, night)
         paths.append(_render_table_page(
             web_dir / "results" / str(night) / "index.html", f"{night}: fields", "../../index.html",

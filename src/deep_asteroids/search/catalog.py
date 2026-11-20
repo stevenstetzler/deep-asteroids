@@ -27,14 +27,17 @@ class Catalog:
     n_per_exposure: list  # rows contributed by each exposure, in time order
 
 
-def build_catalog(search_definition, catalog_dir):
+def build_catalog(search_definition, catalog_dir, skip=()):
     """The stacked catalog for ``search_definition``, exposures in time order
     (the order find-asteroids sees them in matters for tie-breaking, so it is
     deterministic): ``ra``/``dec`` in degrees, ``time`` a UTC ``Time``,
     ``flux``/``mag`` (dropped if no row has one), and the
     ``deep_db_detector_exposure_id`` it came from. Raises if a catalog is
-    missing or no exposure has any detection."""
-    exposures = sorted(search_definition.exposures, key=lambda e: e.midpoint_mjd)
+    missing or no exposure has any detection. Exposures whose ``deep_db_detector_exposure_id`` is in
+    ``skip`` (those with no image) are left out."""
+    skip = set(skip)
+    exposures = sorted((e for e in search_definition.exposures if e.deep_db_detector_exposure_id not in skip),
+                       key=lambda e: e.midpoint_mjd)
     tables, counts = [], []
     for e in exposures:
         path = catalog_path(catalog_dir, e.deep_db_detector_exposure_id)

@@ -1,12 +1,15 @@
 import click
 
 from deep_asteroids.cli import main
+from deep_asteroids.database.search import parse_band
 
 
 def _selection(f):
     for option in reversed([
         click.option("--night", "nights", multiple=True, type=int, help="Only these nights (repeatable)"),
         click.option("--run-id", "run_ids", multiple=True, type=str, help="Only these search runs (repeatable)"),
+        click.option("--band", "band", type=str, default=None,
+                     help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band"),
         click.option("--authoritative-only/--all-results", default=True, show_default=True,
                      help="Count distinct objects (the authoritative result of each de-duplication cluster), or every result"),
     ]):
@@ -33,12 +36,12 @@ def make_thresholds(submitted_radius_arcsec, synthetic_radius_arcsec, known_radi
                       known_radius_arcsec=known_radius_arcsec, sigma_v_threshold=sigma_v_threshold)
 
 
-def classified(session, nights, run_ids, thresholds):
+def classified(session, nights, run_ids, thresholds, band=Ellipsis):
     """The selected results, loaded and classified, or a ClickException saying what to run first."""
     from deep_asteroids.crossmatch.classify import MissingStatisticsError, classify, load_results
 
     try:
-        rows = load_results(session, nights=nights or None, run_ids=run_ids or None)
+        rows = load_results(session, nights=nights or None, run_ids=run_ids or None, band=band)
     except MissingStatisticsError as error:
         raise click.ClickException(str(error)) from error
     if not rows:
@@ -57,7 +60,7 @@ def plot(ctx):
 @_selection
 @_thresholds
 @click.pass_context
-def residuals(ctx, out, nights, run_ids, authoritative_only, **kw):
+def residuals(ctx, out, nights, run_ids, band, authoritative_only, **kw):
     """Histograms of log10(median residual) by group (a diagnostic; not the putative-real cut -- see `sigma-v`)."""
     from sqlalchemy.orm import Session
 
@@ -66,7 +69,7 @@ def residuals(ctx, out, nights, run_ids, authoritative_only, **kw):
 
     thresholds = make_thresholds(**kw)
     with Session(create_db()) as session:
-        rows = classified(session, nights, run_ids, thresholds)
+        rows = classified(session, nights, run_ids, thresholds, band=parse_band(band))
     click.echo(f"wrote {plot_residuals(rows, out, authoritative_only)}")
 
 
@@ -75,7 +78,7 @@ def residuals(ctx, out, nights, run_ids, authoritative_only, **kw):
 @_selection
 @_thresholds
 @click.pass_context
-def sigma_v(ctx, out, nights, run_ids, authoritative_only, **kw):
+def sigma_v(ctx, out, nights, run_ids, band, authoritative_only, **kw):
     """Histograms of log10(sigma_v) by group, with the putative-real cut marked."""
     from sqlalchemy.orm import Session
 
@@ -84,7 +87,7 @@ def sigma_v(ctx, out, nights, run_ids, authoritative_only, **kw):
 
     thresholds = make_thresholds(**kw)
     with Session(create_db()) as session:
-        rows = classified(session, nights, run_ids, thresholds)
+        rows = classified(session, nights, run_ids, thresholds, band=parse_band(band))
     click.echo(f"wrote {plot_sigma_v(rows, out, thresholds, authoritative_only)}")
 
 
@@ -94,7 +97,7 @@ def sigma_v(ctx, out, nights, run_ids, authoritative_only, **kw):
 @_selection
 @_thresholds
 @click.pass_context
-def magnitudes(ctx, out, bin_width, nights, run_ids, authoritative_only, **kw):
+def magnitudes(ctx, out, bin_width, nights, run_ids, band, authoritative_only, **kw):
     """Histograms of each result's median magnitude, by group."""
     from sqlalchemy.orm import Session
 
@@ -103,7 +106,7 @@ def magnitudes(ctx, out, bin_width, nights, run_ids, authoritative_only, **kw):
 
     thresholds = make_thresholds(**kw)
     with Session(create_db()) as session:
-        rows = classified(session, nights, run_ids, thresholds)
+        rows = classified(session, nights, run_ids, thresholds, band=parse_band(band))
     click.echo(f"wrote {plot_magnitudes(rows, out, thresholds, authoritative_only, bin_width)}")
 
 
@@ -117,8 +120,10 @@ def magnitudes(ctx, out, bin_width, nights, run_ids, authoritative_only, **kw):
 @click.option("--bin-width", type=float, default=0.5, show_default=True)
 @click.option("--night", "nights", multiple=True, type=int, help="Only these nights (repeatable)")
 @click.option("--run-id", "run_ids", multiple=True, type=str, help="Only these search runs (repeatable)")
+@click.option("--band", "band", type=str, default=None,
+              help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band")
 @click.pass_context
-def completeness(ctx, out, source, radius_arcsec, min_exposure_fraction, bin_width, nights, run_ids):
+def completeness(ctx, out, source, radius_arcsec, min_exposure_fraction, bin_width, nights, run_ids, band):
     """Recovered fraction of the findable synthetic (or known) objects against magnitude.
 
     An object counts only if it was on a searched chip and inside the search's velocity range; it is
@@ -132,7 +137,7 @@ def completeness(ctx, out, source, radius_arcsec, min_exposure_fraction, bin_wid
     radius = DEFAULT_RADII[source] if radius_arcsec is None else radius_arcsec
     with Session(create_db()) as session:
         rows = completeness_rows(session, source=source, nights=nights or None, run_ids=run_ids or None,
-                                 radius=radius, min_exposure_fraction=min_exposure_fraction)
+                                 radius=radius, min_exposure_fraction=min_exposure_fraction, band=parse_band(band))
     if not rows:
         raise click.ClickException(f"no findable {source} objects (are there searches, results and tracklets for the night?)")
     click.echo(f"{len(rows):,} findable {source} objects, {sum(r.recovered for r in rows):,} recovered")
@@ -149,10 +154,12 @@ def completeness(ctx, out, source, radius_arcsec, min_exposure_fraction, bin_wid
               help="An object is findable if it is on a searched chip for at least this fraction of the search's exposures")
 @click.option("--night", "nights", multiple=True, type=int, help="Only these nights (repeatable)")
 @click.option("--run-id", "run_ids", multiple=True, type=str, help="Only these search runs (repeatable)")
+@click.option("--band", "band", type=str, default=None,
+              help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band")
 @click.option("--out", type=click.Path(dir_okay=False), default=None,
               help="CSV to write, one row per missed object; omit to just print the count")
 @click.pass_context
-def missed_objects(ctx, source, radius_arcsec, min_exposure_fraction, nights, run_ids, out):
+def missed_objects(ctx, source, radius_arcsec, min_exposure_fraction, nights, run_ids, band, out):
     """Known objects (#40) that a search could have found but no result matched: mpchecker
     ephemerides, synthetic objects, or submitted MPC observations (mpc_linked).
 
@@ -167,7 +174,7 @@ def missed_objects(ctx, source, radius_arcsec, min_exposure_fraction, nights, ru
     radius = DEFAULT_RADII[source] if radius_arcsec is None else radius_arcsec
     with Session(create_db()) as session:
         missed = missed_known_objects(session, source=source, nights=nights or None, run_ids=run_ids or None,
-                                      radius=radius, min_exposure_fraction=min_exposure_fraction)
+                                      radius=radius, min_exposure_fraction=min_exposure_fraction, band=parse_band(band))
     click.echo(f"{len(missed):,} missed {source} object(s)")
     for m in missed[:20] if out is None else []:
         mag = "" if m.mag != m.mag else f", mag {m.mag:.2f}"  # mag != mag: NaN (mpc_linked)
@@ -182,7 +189,7 @@ def missed_objects(ctx, source, radius_arcsec, min_exposure_fraction, nights, ru
 @_selection
 @_thresholds
 @click.pass_context
-def summary(ctx, nights, run_ids, authoritative_only, **kw):
+def summary(ctx, nights, run_ids, band, authoritative_only, **kw):
     """The funnel of a night's results: by what they match, and how many are putative real.
 
     Groups are submitted (a linked MPC tracklet within the radius), synthetic, known (an mpchecker
@@ -196,7 +203,7 @@ def summary(ctx, nights, run_ids, authoritative_only, **kw):
 
     thresholds = make_thresholds(**kw)
     with Session(create_db()) as session:
-        rows = classified(session, nights, run_ids, thresholds)
+        rows = classified(session, nights, run_ids, thresholds, band=parse_band(band))
     click.echo(funnel(rows).format())
     kept = retained(rows)
     click.echo("  the cut keeps: " + ", ".join(

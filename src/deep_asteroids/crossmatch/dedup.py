@@ -36,7 +36,7 @@ from sqlalchemy import delete, func, insert, select
 
 from deep_asteroids.crossmatch.geometry import cluster_results, exposure_times_tai, positions
 from deep_asteroids.database.crossmatch import ResultDedup
-from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure
+from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure, band_clause
 
 DEFAULT_MERGE_RADIUS_ARCSEC = 2.0
 
@@ -74,7 +74,7 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _group_rows(session, nights, fields, run_ids):
+def _group_rows(session, nights, fields, run_ids, band=Ellipsis):
     """Every selected result with its tracklet and pointing group:
     ``(result_id, n, vra, vdec, ra_0, dec_0, night, field, search_definition_id)``."""
     q = (
@@ -90,15 +90,22 @@ def _group_rows(session, nights, fields, run_ids):
         q = q.where(SearchDefinition.field.in_(list(fields)))
     if run_ids:
         q = q.where(Search.run_id.in_(list(run_ids)))
+    if (clause := band_clause(band)) is not None:
+        q = q.where(clause)
     return session.execute(q.order_by(Result.id)).all()
 
 
 def dedup_results(session, nights=None, fields=None, run_ids=None,
-                  merge_radius_arcsec=DEFAULT_MERGE_RADIUS_ARCSEC, force=False):
+                  merge_radius_arcsec=DEFAULT_MERGE_RADIUS_ARCSEC, force=False, band=Ellipsis):
     """De-duplicate the selected results (default: all) per ``(night, field)``
-    pointing group. Returns a ``DedupSummary``. Commits."""
+    pointing group. Returns a ``DedupSummary``. Commits.
+
+    With ``band``, only that band's results are clustered, so a band's objects are never merged
+    with another band's (the undefined-band legacy searches and the VR ones cover the same sky).
+    A group that already has de-duplication rows is skipped unless ``force``, so de-duplicate a
+    database that was clustered across bands with ``force``, once per band."""
     summary = DedupSummary()
-    rows = _group_rows(session, nights, fields, run_ids)
+    rows = _group_rows(session, nights, fields, run_ids, band)
 
     # results with no search definition cannot be placed in a group
     q = select(func.count()).select_from(Result).join(Search, Search.id == Result.search_id).where(

@@ -21,7 +21,7 @@ class SearchRun(Base):
     seed = Column(Integer, nullable=False)
     threshold = Column(Float, nullable=False)  # detection threshold (sigma)
     polarity = Column(String, nullable=False)
-    n_exposures = Column(Integer, nullable=False)
+    n_exposures = Column(Integer, nullable=False)  # exposures searched: fewer than the definition's if any lacked an image
     n_detections = Column(Integer, nullable=False)  # rows in the stacked catalog
     n_results = Column(Integer)
     # what ran
@@ -34,3 +34,15 @@ class SearchRun(Base):
     search_seconds = Column(Float)
     ingest_seconds = Column(Float)
     created_at = Column(DateTime, nullable=False)
+
+
+class SearchMissingImage(Base):
+    """A detector-exposure of a search's definition that had no ``differenceExp`` image, so the
+    run searched without it. One row per such exposure per ``run_id``."""
+
+    __tablename__ = "search_missing_image"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String, nullable=False, index=True)
+    deep_db_detector_exposure_id = Column(Integer, nullable=False)
+    expnum = Column(Integer)

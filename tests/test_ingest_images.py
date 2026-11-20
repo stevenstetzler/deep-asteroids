@@ -194,3 +194,38 @@ def test_ingest_images_night_field_filter(session, tmp_path):
                             nights=[20200101])
     assert summary.groups == []
     assert _images(session) == []
+
+
+def _fallback_registry(tmp_path):
+    """The field's own chain (run-a) provides only the first detector of each exposure; a sibling
+    chain DEEP/<night>/diff_drp (run-b) provides every detector, and one pair the field chain also has."""
+    rows = [(e, DETECTORS[0], f"ds-a-{e}", f"a/{e}.fits", 10) for e in EXPNUMS]
+    rows += [(e, d, f"ds-b-{e}-{d}", f"b/{e}_{d}.fits", 20) for e in EXPNUMS for d in DETECTORS]
+    return _make_registry(
+        tmp_path, rows=rows,
+        collections=[(1, f"DEEP/{NIGHT}/{FIELD}", 3), (10, "run-a", 1), (2, f"DEEP/{NIGHT}/diff_drp", 3), (20, "run-b", 1)],
+        chain_edges=[(1, 0, 10), (2, 0, 20)],
+    )
+
+
+def test_ingest_images_fallback_collection_fills_only_what_is_missing(session, tmp_path):
+    summary = ingest_images(session, get_deep_db(), _fallback_registry(tmp_path), REPO_DIR, ["differenceExp"],
+                            fallback_collections=["DEEP/{night}/diff_drp"])
+    rows = {(r.expnum, r.detector_number): r.uri for r in _images(session)}
+    assert len(rows) == len(EXPNUMS) * len(DETECTORS) == summary.n_written
+    # a pair the field's own chain has keeps its own path; the rest come from the fallback collection
+    assert rows[(EXPNUMS[0], DETECTORS[0])] == f"{REPO_DIR}/a/{EXPNUMS[0]}.fits"
+    assert rows[(EXPNUMS[0], DETECTORS[1])] == f"{REPO_DIR}/b/{EXPNUMS[0]}_{DETECTORS[1]}.fits"
+    assert summary.n_from_fallback == len(EXPNUMS) * (len(DETECTORS) - 1)
+    assert "fallback collection" in summary.format()
+
+
+def test_ingest_images_without_fallback_leaves_the_gap(session, tmp_path):
+    ingest_images(session, get_deep_db(), _fallback_registry(tmp_path), REPO_DIR, ["differenceExp"])
+    assert len(_images(session)) == len(EXPNUMS)  # only run-a's one detector per exposure
+
+
+def test_ingest_images_missing_fallback_collection_is_skipped(session, tmp_path):
+    summary = ingest_images(session, get_deep_db(), _fallback_registry(tmp_path), REPO_DIR, ["differenceExp"],
+                            fallback_collections=["DEEP/{night}/no_such_chain"])
+    assert summary.n_from_fallback == 0 and len(_images(session)) == len(EXPNUMS)

@@ -337,12 +337,14 @@ RESULT_FIELDS = (
 @click.option("--authoritative-only", is_flag=True,
               help="Only the authoritative result of each de-duplication cluster")
 @click.option("--sigma-v-threshold", type=float, default=0.00025, show_default=True)
+@click.option("--band", "band", type=str, default=None,
+              help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band")
 @click.option("--limit", type=int, default=None, help="Only the first N results")
 @click.option("--header/--no-header", default=False, help="Print the field names first")
 @click.option("--output", type=click.Path(dir_okay=False), help="Write here instead of stdout")
 @click.pass_context
 def results(ctx, nights, run_ids, groups, putative_real, putative_new, authoritative_only, sigma_v_threshold,
-            limit, header, output):
+            band, limit, header, output):
     """Print results with their statistics, group and putative-real call, '|'-separated.
 
     Fields: run_id result_num authoritative group putative_real failed_cuts n_gathered
@@ -352,10 +354,11 @@ def results(ctx, nights, run_ids, groups, putative_real, putative_new, authorita
 
     from deep_asteroids.cli.plot import classified, make_thresholds
     from deep_asteroids.database import create_db
+    from deep_asteroids.database.search import parse_band
 
     thresholds = make_thresholds(2.0, 2.0, 2.0, sigma_v_threshold)
     with Session(create_db()) as session:
-        rows = classified(session, nights, run_ids, thresholds)
+        rows = classified(session, nights, run_ids, thresholds, band=parse_band(band))
     if groups:
         rows = [r for r in rows if r.group in groups]
     if putative_real is not None:

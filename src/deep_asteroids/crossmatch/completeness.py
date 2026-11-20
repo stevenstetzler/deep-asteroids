@@ -30,7 +30,7 @@ from sqlalchemy import select
 
 from deep_asteroids.crossmatch.geometry import exposure_times_tai, positions
 from deep_asteroids.database.crossmatch import CrossmatchCandidate
-from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure
+from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure, band_clause
 from deep_asteroids.database.tracklets import KnownTracklet
 from deep_asteroids.ingest.fit import wrap180
 
@@ -78,8 +78,12 @@ def inside_quadrilaterals(ra, dec, corner_ra, corner_dec):
 
 
 def completeness_rows(session, source="synthetic", nights=None, run_ids=None, radius=None,
-                      min_exposure_fraction=0.5):
-    """``CompletenessRow``s for the objects of ``source`` that the selected searches could have found."""
+                      min_exposure_fraction=0.5, band=Ellipsis):
+    """``CompletenessRow``s for the objects of ``source`` that the selected searches could have found.
+
+    ``band`` restricts to searches of that band (``Ellipsis``: any, ``None``: the undefined-band ones).
+    With a band, an object is recovered only by a result of a search of that band; without one, by a
+    result of any search."""
     radius = DEFAULT_RADII[source] if radius is None else radius
     q = select(SearchDefinition.id, SearchDefinition.run_id, SearchDefinition.night, Search.velocity_0,
                Search.velocity_1).join(Search, Search.run_id == SearchDefinition.run_id).where(
@@ -88,6 +92,8 @@ def completeness_rows(session, source="synthetic", nights=None, run_ids=None, ra
         q = q.where(SearchDefinition.night.in_(list(nights)))
     if run_ids:
         q = q.where(SearchDefinition.run_id.in_(list(run_ids)))
+    if (clause := band_clause(band)) is not None:
+        q = q.where(clause)
     runs = session.execute(q.order_by(SearchDefinition.run_id)).all()
 
     known = {}
@@ -137,11 +143,17 @@ def completeness_rows(session, source="synthetic", nights=None, run_ids=None, ra
     recovered = set()
     if best:
         ids = list(best)
+        in_band = None
+        if band is not Ellipsis:  # only results of this band's searches count as a recovery
+            in_band = select(Result.id).where(Result.search_id.in_(
+                select(Search.id).where(Search.run_id.in_(select(SearchDefinition.run_id).where(band_clause(band))))))
         for chunk in range(0, len(ids), 500):
-            recovered.update(session.scalars(
-                select(CrossmatchCandidate.known_tracklet_id).where(
-                    CrossmatchCandidate.known_tracklet_id.in_(ids[chunk:chunk + 500]),
-                    CrossmatchCandidate.mean_sep_arcsec < radius).distinct()).all())
+            q = select(CrossmatchCandidate.known_tracklet_id).where(
+                CrossmatchCandidate.known_tracklet_id.in_(ids[chunk:chunk + 500]),
+                CrossmatchCandidate.mean_sep_arcsec < radius)
+            if in_band is not None:
+                q = q.where(CrossmatchCandidate.result_id.in_(in_band))
+            recovered.update(session.scalars(q.distinct()).all())
     return [CompletenessRow(known_tracklet_id=kid, night=b[3], mag=b[4], speed=b[5], run_id=b[1], n_on_chip=b[0],
                             n_exposures=b[2], recovered=kid in recovered) for kid, b in sorted(best.items())]
 
@@ -184,11 +196,11 @@ def _label(kt_id, source, provid, permid, name, designations, orbit_id, componen
 
 
 def missed_known_objects(session, source="synthetic", nights=None, run_ids=None, radius=None,
-                         min_exposure_fraction=0.5):
+                         min_exposure_fraction=0.5, band=Ellipsis):
     """The findable objects of ``source`` (``completeness_rows``) that were NOT recovered, each
     with an identity label. The "check for known objects that weren't found" of #40."""
     rows = [r for r in completeness_rows(session, source=source, nights=nights, run_ids=run_ids,
-                                         radius=radius, min_exposure_fraction=min_exposure_fraction)
+                                         radius=radius, min_exposure_fraction=min_exposure_fraction, band=band)
             if not r.recovered]
     identity = {}
     if rows:
