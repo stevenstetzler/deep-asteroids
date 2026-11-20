@@ -94,8 +94,9 @@ as a diagnostic; it is no longer the cut.
   groups' shapes visible; middle), and each group's own fraction
   (bottom).
 - **`completeness.png`** -- recovered fraction of findable synthetic
-  objects vs. magnitude (24,845 findable, 9,022 recovered overall; unchanged
-  by the 2" known radius, which does not affect the synthetic radius).
+  objects vs. magnitude (24,843 findable, 9,020 recovered overall; the legacy
+  searches give 24,845 and 9,022). A band is recovered only by its own results
+  (`--band VR`), not by a legacy match.
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
 via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness --band VR` and

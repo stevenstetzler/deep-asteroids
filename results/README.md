@@ -128,12 +128,16 @@ any other night's.
 ## Missed submitted (mpc_linked) tracklets (#40)
 
 Two scripts that answer why findable submitted tracklets were missed, run from a compute node against
-the full-survey database (both read it read-only; see each script's docstring for its arguments):
+the full-survey database (both read it read-only; see each script's docstring for its arguments). They take
+a band: with `VR`, only the band='VR' searches count, and only a result of one of them is a match.
 
 - `mpc_linked_velocity_check.py` takes every mpc_linked tracklet whose track crosses a searched chip
   and records whether its speed is inside a search's velocity range and whether a result matched it
-  (within 2"). Over the survey: 44,102 on searched chips, of which 41,972 are in range, and **all 4,519
-  that were missed are in range** (velocity range is not the cause). About an hour.
+  (within 2"). Over the survey, for the **VR searches**: 44,101 on searched chips, of which 41,971 are in range
+  (37,452 recovered), and **all 4,519 that were missed are in range** (velocity range is not the cause). The
+  legacy searches gave 44,102, 41,972, 37,453 and the same 4,519: the missed tracklets are exactly the same
+  ones, observation for observation (the CSV differs from the legacy one only in the `-VR` suffix of each
+  `search_run_id`). About an hour.
 - `missed_mpc_linked_observations.py` turns its missed in-range tracklets into
   `missed_mpc_linked_observations.csv`: night, field, the CCD(s) the observations landed on, the searched
   chip, provid/permid/name (3,017 of 4,519 are undesignated), and each tracklet's observation count and obsids,
