@@ -132,8 +132,10 @@ def result(ctx, run_ids, night, field_, detector_number, band, result_nums, web_
 
 @package.command()
 @click.option("--web-dir", type=click.Path(file_okay=False), default="web", show_default=True)
+@click.option("--night", "nights", multiple=True, type=int,
+              help="Only the pages below the top one of these nights (repeatable); default: every night")
 @click.pass_context
-def index(ctx, web_dir):
+def index(ctx, web_dir, nights):
     """(Re)write every index page above the leaf: nights -> fields -> CCDs ->
     bands (searches) -> results, straight from the database.
 
@@ -147,7 +149,7 @@ def index(ctx, web_dir):
     from deep_asteroids.web.index import build_site_index
 
     with Session(get_db()) as session:
-        paths = build_site_index(session, web_dir)
+        paths = build_site_index(session, web_dir, nights=set(nights) or None)
     click.echo(f"package index: {len(paths)} page(s) written under {web_dir}")
 
 

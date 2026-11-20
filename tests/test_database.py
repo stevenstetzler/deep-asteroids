@@ -188,3 +188,27 @@ def test_cached_sha256_reads_sidecar_only(tmp_path):
     assert cached_sha256(db) is None
     Path(str(db) + ".sha256").write_text("abc123\n")
     assert cached_sha256(db) == "abc123"
+
+
+def test_read_only_snapshot_opens_without_a_journal_mode_change(db_url, tmp_path, monkeypatch):
+    """A job on another node reads a ``VACUUM INTO`` snapshot opened ``mode=ro&immutable=1``: WAL does not work
+    across hosts. Opening it must not try to switch the journal mode (it could not), and it must not create a
+    -wal/-shm file beside the snapshot."""
+    engine = database.create_db()
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO search (run_id) VALUES ('snap')"))
+    snapshot = tmp_path / "snapshot.sqlite"
+    with engine.connect() as conn:
+        conn.exec_driver_sql(f"VACUUM INTO '{snapshot}'")
+    assert [p.name for p in tmp_path.glob("snapshot.sqlite*")] == ["snapshot.sqlite"]
+
+    database.dispose_engines()
+    monkeypatch.setenv("DEEP_ASTEROIDS_DB", f"sqlite:///file:{snapshot}?mode=ro&immutable=1&uri=true")
+    ro = database.get_db()
+    with ro.connect() as conn:
+        assert conn.execute(text("SELECT run_id FROM search")).scalar() == "snap"
+        assert conn.exec_driver_sql("PRAGMA journal_mode").scalar() == "delete"  # not switched to WAL
+        with pytest.raises(Exception, match="readonly|read-only"):
+            conn.execute(text("INSERT INTO search (run_id) VALUES ('x')"))
+    assert [p.name for p in tmp_path.glob("snapshot.sqlite*")] == ["snapshot.sqlite"]
+    database.dispose_engines()
