@@ -206,11 +206,30 @@ def plot_position_residuals_hist(rows, path, range_arcsec=2.0, bin_width_arcsec=
     return _save(fig, path)
 
 
+def _density_contours(ax, x, y, bins=60, levels=(0.5, 0.8, 0.95), color="black"):
+    """Contours enclosing ``levels`` fractions of the points (corner-plot style): a 2D histogram,
+    lightly Gaussian-smoothed so the contours aren't bin-edge-jagged, contoured at the density
+    thresholds whose enclosed (highest-density-first) mass reaches each fraction."""
+    from scipy.ndimage import gaussian_filter
+
+    counts, xedges, yedges = np.histogram2d(x, y, bins=bins)
+    counts = gaussian_filter(counts, sigma=1.0)
+    flat = np.sort(counts.ravel())[::-1]
+    cumulative = np.cumsum(flat)
+    cumulative /= cumulative[-1]
+    thresholds = sorted({float(flat[np.searchsorted(cumulative, lvl)]) for lvl in levels})
+    if len(thresholds) < 2:  # too few points/bins to separate levels -- nothing meaningful to contour
+        return
+    xc, yc = (xedges[:-1] + xedges[1:]) / 2, (yedges[:-1] + yedges[1:]) / 2
+    ax.contour(xc, yc, counts.T, levels=thresholds, colors=color, linewidths=1.2, zorder=5)
+
+
 def plot_position_residuals_vs_mag(rows, path, median_mag_by_object, bin_width=0.5, min_n=20):
     """``dra_arcsec``/``ddec_arcsec`` of every detection against its object's median magnitude
     (``median_mag_by_object``, from ``uncertainty.median_mag_by_object``); detections of an
-    object with no magnitude are left out (#46). Overlaid with each magnitude bin's median and
-    +-1/2/3 robust sigma (``uncertainty.bin_residuals_by_magnitude``)."""
+    object with no magnitude are left out (#46). Shown as density contours with the individual
+    detections underneath at low alpha, overlaid with each magnitude bin's median and +-1/2/3
+    robust sigma (``uncertainty.bin_residuals_by_magnitude``)."""
     from deep_asteroids.crossmatch.uncertainty import bin_residuals_by_magnitude
 
     plt = _plt()
@@ -224,7 +243,8 @@ def plot_position_residuals_vs_mag(rows, path, median_mag_by_object, bin_width=0
     fig, (ax_ra, ax_dec) = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
     for ax, values, label, med_col, sigma_col in (
             (ax_ra, dra, "dRA", 3, 4), (ax_dec, ddec, "dDec", 5, 6)):
-        ax.scatter(mag, values, s=6, alpha=0.3, color="tab:blue")
+        ax.scatter(mag, values, s=3, alpha=0.02, color="tab:blue", rasterized=True)
+        _density_contours(ax, mag, values)
         ax.axhline(0.0, color="k", ls="--", lw=1)
         if len(bins):
             median = np.array([b[med_col] for b in bins])
