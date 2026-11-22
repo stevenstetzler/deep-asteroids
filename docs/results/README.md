@@ -97,9 +97,20 @@ as a diagnostic; it is no longer the cut.
   objects vs. magnitude (24,843 findable, 9,020 recovered overall; the legacy
   searches give 24,845 and 9,022). A band is recovered only by its own results
   (`--band VR`), not by a legacy match.
+- **`position_residuals.png`** -- histograms of dRA/dDec (observed -
+  predicted, arcsec) for the 1,374,671 detections of the 20,030 numbered
+  known objects (permid set) a result matched within 2" (#46): both are
+  tightly centred on zero (median -0.016"/-0.031", std 0.145"/0.136"),
+  confirming find-asteroids' detections, deep-db's exposure midpoints and
+  the known-object fits all agree at the ~0.1-0.2" level.
+- **`position_residuals_vs_mag.png`** -- the same per-detection dRA/dDec
+  against the object's own median magnitude (over its detections within
+  1"): the scatter widens steadily fainter than ~mag 18, as expected
+  for shot-noise-limited centroiding, and stays essentially flat and
+  tight (well under 0.25") brightward of it.
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
-via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness --band VR` and
+via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness/position-residuals/position-residuals-vs-mag --band VR` and
 `deep-asteroids summary --band VR` (`--band none` for the legacy column; defaults: 2" submitted/synthetic/known
-radius, sigma_v < 0.00025 deg/day, authoritative objects only), after `statistics`, `crossmatch` and
-`dedup --force` were run once per band.
+radius, sigma_v < 0.00025 deg/day, authoritative objects only; the position-residuals plots use the default 2"
+match / 1" detection radius), after `statistics`, `crossmatch` and `dedup --force` were run once per band.

@@ -182,3 +182,46 @@ def plot_completeness(completeness, path, source="synthetic", bin_width=0.5, rad
     ax_n.set_ylabel("objects")
     ax_n.legend(fontsize=8)
     return _save(fig, path)
+
+
+def plot_position_residuals_hist(rows, path, range_arcsec=2.0, bin_width_arcsec=0.05):
+    """Histograms of ``dra_arcsec``/``ddec_arcsec`` over numbered known objects' matched
+    detections (#46): how well a result's gathered points track the known object's own fit."""
+    plt = _plt()
+    if not rows:
+        raise ValueError("no position residuals to plot")
+    dra = np.array([r.dra_arcsec for r in rows])
+    ddec = np.array([r.ddec_arcsec for r in rows])
+    edges = np.arange(-range_arcsec, range_arcsec + bin_width_arcsec, bin_width_arcsec)
+    fig, (ax_ra, ax_dec) = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    for ax, values, label in ((ax_ra, dra, "dRA"), (ax_dec, ddec, "dDec")):
+        v = values[(values >= edges[0]) & (values <= edges[-1])]
+        ax.hist(v, bins=edges, color="tab:blue", alpha=0.8)
+        ax.axvline(0.0, color="k", ls="--", lw=1)
+        ax.set_xlabel(f"{label} (observed - predicted, arcsec)")
+        ax.set_title(f"{label}: median {np.median(values):+.3f}\", std {values.std():.3f}\" (n={len(values):,})")
+        ax.grid(alpha=0.25)
+    ax_ra.set_ylabel("detections")
+    fig.suptitle("positional residuals of detections against numbered known objects' tracklets")
+    return _save(fig, path)
+
+
+def plot_position_residuals_vs_mag(rows, path, median_mag_by_object):
+    """``dra_arcsec``/``ddec_arcsec`` of every detection against its object's median magnitude
+    (``median_mag_by_object``, from ``uncertainty.median_mag_by_object``); detections of an
+    object with no magnitude are left out (#46)."""
+    plt = _plt()
+    pts = [(median_mag_by_object[r.known_tracklet_id], r.dra_arcsec, r.ddec_arcsec)
+           for r in rows if r.known_tracklet_id in median_mag_by_object]
+    if not pts:
+        raise ValueError("no position residuals with a magnitude to plot")
+    mag, dra, ddec = (np.array(v) for v in zip(*pts))
+    fig, (ax_ra, ax_dec) = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
+    for ax, values, label in ((ax_ra, dra, "dRA"), (ax_dec, ddec, "dDec")):
+        ax.scatter(mag, values, s=6, alpha=0.3, color="tab:blue")
+        ax.axhline(0.0, color="k", ls="--", lw=1)
+        ax.set_xlabel("object's median magnitude (within 1\")")
+        ax.set_ylabel(f"{label} (observed - predicted, arcsec)")
+        ax.grid(alpha=0.25)
+    fig.suptitle(f"positional residuals vs. magnitude (n={len(pts):,} detections)")
+    return _save(fig, path)
