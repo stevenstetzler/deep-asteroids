@@ -105,9 +105,11 @@ as a diagnostic; it is no longer the cut.
   the known-object fits all agree at the ~0.1-0.2" level.
 - **`position_residuals_vs_mag.png`** -- the same per-detection dRA/dDec
   against the object's own median magnitude (over its detections within
-  1"): the scatter widens steadily fainter than ~mag 18, as expected
-  for shot-noise-limited centroiding, and stays essentially flat and
-  tight (well under 0.25") brightward of it.
+  1"), with each 0.5-mag bin's median and +-1/2/3 robust (MAD) sigma
+  overlaid (bins under 20 detections dropped): the scatter widens
+  steadily fainter than ~mag 18, as expected for shot-noise-limited
+  centroiding, and stays essentially flat and tight (well under 0.25")
+  brightward of it.
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
 via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness/position-residuals/position-residuals-vs-mag --band VR` and

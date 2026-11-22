@@ -206,22 +206,36 @@ def plot_position_residuals_hist(rows, path, range_arcsec=2.0, bin_width_arcsec=
     return _save(fig, path)
 
 
-def plot_position_residuals_vs_mag(rows, path, median_mag_by_object):
+def plot_position_residuals_vs_mag(rows, path, median_mag_by_object, bin_width=0.5, min_n=20):
     """``dra_arcsec``/``ddec_arcsec`` of every detection against its object's median magnitude
     (``median_mag_by_object``, from ``uncertainty.median_mag_by_object``); detections of an
-    object with no magnitude are left out (#46)."""
+    object with no magnitude are left out (#46). Overlaid with each magnitude bin's median and
+    +-1/2/3 robust sigma (``uncertainty.bin_residuals_by_magnitude``)."""
+    from deep_asteroids.crossmatch.uncertainty import bin_residuals_by_magnitude
+
     plt = _plt()
     pts = [(median_mag_by_object[r.known_tracklet_id], r.dra_arcsec, r.ddec_arcsec)
            for r in rows if r.known_tracklet_id in median_mag_by_object]
     if not pts:
         raise ValueError("no position residuals with a magnitude to plot")
     mag, dra, ddec = (np.array(v) for v in zip(*pts))
+    bins = bin_residuals_by_magnitude(rows, median_mag_by_object, bin_width, min_n)
+    centres = np.array([(b[0] + b[1]) / 2 for b in bins])
     fig, (ax_ra, ax_dec) = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
-    for ax, values, label in ((ax_ra, dra, "dRA"), (ax_dec, ddec, "dDec")):
+    for ax, values, label, med_col, sigma_col in (
+            (ax_ra, dra, "dRA", 3, 4), (ax_dec, ddec, "dDec", 5, 6)):
         ax.scatter(mag, values, s=6, alpha=0.3, color="tab:blue")
         ax.axhline(0.0, color="k", ls="--", lw=1)
+        if len(bins):
+            median = np.array([b[med_col] for b in bins])
+            sigma = np.array([b[sigma_col] for b in bins])
+            ax.plot(centres, median, color="k", lw=1.5, label="median")
+            for k, alpha in ((1, 0.9), (2, 0.6), (3, 0.35)):
+                ax.plot(centres, median + k * sigma, color="tab:red", lw=1, alpha=alpha, label=f"+-{k}sigma (MAD)")
+                ax.plot(centres, median - k * sigma, color="tab:red", lw=1, alpha=alpha)
+            ax.legend(fontsize=7, loc="upper left")
         ax.set_xlabel("object's median magnitude (within 1\")")
         ax.set_ylabel(f"{label} (observed - predicted, arcsec)")
         ax.grid(alpha=0.25)
-    fig.suptitle(f"positional residuals vs. magnitude (n={len(pts):,} detections)")
+    fig.suptitle(f"positional residuals vs. magnitude (n={len(pts):,} detections, {bin_width:g}-mag bins, n>={min_n})")
     return _save(fig, path)

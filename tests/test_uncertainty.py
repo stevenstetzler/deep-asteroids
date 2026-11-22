@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 
 from deep_asteroids.crossmatch.match import crossmatch_results
 from deep_asteroids.crossmatch.uncertainty import (
+    ResidualRow,
+    bin_residuals_by_magnitude,
     median_mag_by_object,
     position_residuals,
     write_residuals_csv,
@@ -88,3 +90,35 @@ def test_night_filter(session):
     _result, known = _setup(session, [0.1] * h.N_EXPOSURES)
     assert position_residuals(session, nights=[h.NIGHT + 1]) == []
     assert len(position_residuals(session, nights=[h.NIGHT])) == h.N_EXPOSURES
+
+
+def _row(kt_id, dra, ddec=0.0):
+    return ResidualRow(known_tracklet_id=kt_id, result_id=0, night=h.NIGHT, permid="1", time=0.0, mag=None,
+                       dra_arcsec=dra, ddec_arcsec=ddec)
+
+
+def test_bin_residuals_by_magnitude_bins_on_the_objects_own_median_mag():
+    # object 1 (mag 20): 25 detections with a mix of residuals -- median 0, MAD-sigma easy to hand-check
+    bright = [_row(1, d) for d in [-0.1] * 12 + [0.1] * 12 + [0.0]]
+    # object 2 (mag 22.5, same bin as a 0.5-wide bin starting at 22 would end at 22.5 -- place well inside the next bin)
+    faint = [_row(2, d) for d in [-1.0] * 10 + [1.0] * 10 + [0.0]]
+    rows = bright + faint
+    by_object = {1: 20.0, 2: 22.5}
+    bins = bin_residuals_by_magnitude(rows, by_object, bin_width=0.5, min_n=5)
+    by_lo = {round(b[0], 2): b for b in bins}
+    assert 20.0 in by_lo and 22.5 in by_lo
+    lo, hi, n, median, sigma, median_dd, sigma_dd = by_lo[20.0]
+    assert n == 25 and median == pytest.approx(0.0) and sigma == pytest.approx(0.1 * 1.4826)
+    assert median_dd == pytest.approx(0.0) and sigma_dd == pytest.approx(0.0)
+    *_, n2, median2, sigma2, _, _ = by_lo[22.5]
+    assert n2 == 21 and median2 == pytest.approx(0.0) and sigma2 == pytest.approx(1.0 * 1.4826)
+
+
+def test_bin_residuals_by_magnitude_drops_sparse_bins():
+    rows = [_row(1, 0.0) for _ in range(3)]
+    assert bin_residuals_by_magnitude(rows, {1: 20.0}, bin_width=0.5, min_n=5) == []
+
+
+def test_bin_residuals_by_magnitude_skips_objects_with_no_magnitude():
+    rows = [_row(1, 0.0)] * 10
+    assert bin_residuals_by_magnitude(rows, {}, bin_width=0.5, min_n=5) == []

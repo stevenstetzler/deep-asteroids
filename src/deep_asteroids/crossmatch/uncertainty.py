@@ -105,6 +105,38 @@ def median_mag_by_object(rows):
     return {kt_id: float(np.median(mags)) for kt_id, mags in by_object.items()}
 
 
+MAD_TO_SIGMA = 1.4826  # scales a Gaussian's MAD to its sigma
+
+
+def bin_residuals_by_magnitude(rows, median_mag_by_object, bin_width=0.5, min_n=20):
+    """Per-magnitude-bin robust stats of ``dra_arcsec``/``ddec_arcsec``, for ``plot_position_residuals_vs_mag``.
+
+    Fixed-width bins (``completeness.bin_completeness``'s own scheme) over each *object's* median
+    magnitude (``median_mag_by_object``; a detection's x-value is its object's, repeated) -- not the
+    per-detection one, since that is not what the plot's x-axis is. Within a bin, the median and a
+    robust sigma (MAD * 1.4826, resistant to the long tail the 1" detection radius still lets through)
+    of its detections' dRA/dDec; a bin with fewer than ``min_n`` detections is dropped rather than
+    plotted with a noisy estimate. Returns ``[(lo, hi, n, median_dra, sigma_dra, median_ddec, sigma_ddec)]``."""
+    pts = [(median_mag_by_object[r.known_tracklet_id], r.dra_arcsec, r.ddec_arcsec)
+           for r in rows if r.known_tracklet_id in median_mag_by_object]
+    if not pts:
+        return []
+    mag, dra, ddec = (np.array(v) for v in zip(*pts))
+    lo = np.floor(mag.min() / bin_width) * bin_width
+    hi = mag.max() + bin_width
+    out = []
+    for a in np.arange(lo, hi, bin_width):
+        sel = (mag >= a) & (mag < a + bin_width)
+        n = int(sel.sum())
+        if n >= min_n:
+            d, dd = dra[sel], ddec[sel]
+            med_d, med_dd = float(np.median(d)), float(np.median(dd))
+            sigma_d = float(np.median(np.abs(d - med_d))) * MAD_TO_SIGMA
+            sigma_dd = float(np.median(np.abs(dd - med_dd))) * MAD_TO_SIGMA
+            out.append((float(a), float(a + bin_width), n, med_d, sigma_d, med_dd, sigma_dd))
+    return out
+
+
 def write_residuals_csv(rows, out):
     """Writes ``rows`` (``position_residuals``'s own return) to ``out`` as a CSV, one row per
     detection; returns ``out``."""

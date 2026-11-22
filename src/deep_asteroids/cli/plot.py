@@ -188,6 +188,10 @@ def position_residuals_cmd(ctx, out, range_arcsec, bin_width_arcsec, match_radiu
 
 @plot.command("position-residuals-vs-mag")
 @click.option("--out", required=True, type=click.Path(dir_okay=False), help="PNG to write")
+@click.option("--bin-width", type=float, default=0.5, show_default=True,
+              help="Magnitude bin width for the overlaid median/sigma lines")
+@click.option("--min-n", type=int, default=20, show_default=True,
+              help="A magnitude bin needs at least this many detections to get a median/sigma line")
 @click.option("--match-radius-arcsec", type=float, default=2.0, show_default=True,
               help="A result is matched to a numbered known object below this mean separation")
 @click.option("--detection-radius-arcsec", type=float, default=1.0, show_default=True,
@@ -197,17 +201,19 @@ def position_residuals_cmd(ctx, out, range_arcsec, bin_width_arcsec, match_radiu
 @click.option("--band", "band", type=str, default=None,
               help="Only searches of this band (e.g. VR), or '' / none for the undefined-band (all-band, legacy) searches; default: every band")
 @click.pass_context
-def position_residuals_vs_mag(ctx, out, match_radius_arcsec, detection_radius_arcsec, nights, run_ids, band):
+def position_residuals_vs_mag(ctx, out, bin_width, min_n, match_radius_arcsec, detection_radius_arcsec, nights,
+                              run_ids, band):
     """dRA/dDec against each numbered known object's median magnitude (#46).
 
     The magnitude is the median of a result's own gathered photometry over its detections within
-    the detection radius; an object with no magnitude is left out. Needs the cross-match."""
+    the detection radius; an object with no magnitude is left out. Overlaid with each magnitude
+    bin's median and +-1/2/3 robust (MAD) sigma. Needs the cross-match."""
     from deep_asteroids.crossmatch.uncertainty import median_mag_by_object
     from deep_asteroids.viz.plots import plot_position_residuals_vs_mag
 
     rows = _position_residuals(nights, run_ids, band, match_radius_arcsec, detection_radius_arcsec)
     by_object = median_mag_by_object(rows)
-    click.echo(f"wrote {plot_position_residuals_vs_mag(rows, out, by_object)}")
+    click.echo(f"wrote {plot_position_residuals_vs_mag(rows, out, by_object, bin_width, min_n)}")
 
 
 @main.command("position-residuals-csv")
