@@ -148,3 +148,29 @@ def test_cli_package_index(session, seeded, tmp_path):
     assert result.exit_code == 0, result.output
     assert "page(s) written" in result.output
     assert (web_dir / "index.html").exists()
+
+
+def test_build_site_index_can_be_restricted_to_nights(session, seeded, tmp_path):
+    everything = tmp_path / "all"
+    build_site_index(session, everything)
+    assert (everything / "results" / str(NIGHT_1)).exists() and (everything / "results" / str(NIGHT_2)).exists()
+
+    one = tmp_path / "one"
+    paths = build_site_index(session, one, nights={NIGHT_1})
+    assert (one / "results" / str(NIGHT_1)).exists() and not (one / "results" / str(NIGHT_2)).exists()
+    # the top page still lists every night, and the night's own pages are the same as in the full build
+    assert (one / "index.html").read_text() == (everything / "index.html").read_text()
+    assert sorted(p.relative_to(one) for p in paths) == sorted(
+        p.relative_to(everything) for p in everything.rglob("index.html") if f"results/{NIGHT_2}" not in str(p))
+    for path in paths:
+        assert path.read_text() == (everything / path.relative_to(one)).read_text()
+
+    none = tmp_path / "none"
+    build_site_index(session, none, nights={1999_01_01})  # a night with nothing: only the top page
+    assert (none / "index.html").exists() and not (none / "results").exists()
+
+
+def test_cli_package_index_night(session, seeded, tmp_path):
+    out = CliRunner().invoke(main, ["package", "index", "--web-dir", str(tmp_path), "--night", str(NIGHT_1)])
+    assert out.exit_code == 0, out.output
+    assert (tmp_path / "results" / str(NIGHT_1)).exists() and not (tmp_path / "results" / str(NIGHT_2)).exists()

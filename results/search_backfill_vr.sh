@@ -15,9 +15,11 @@
 # list_vr_run_ids.py selects: ~3.8h wall, ~244 core-hours total -- both well short of the PDF
 # backfill's (#32/#33) scale. The other 2 of 12 calibration runs failed with "no
 # differenceExp image ... run `ingest images` first" -- a real data gap (not every planned
-# detector-exposure was actually observed/calibrated that night), not a bug;
-# list_vr_run_ids.py already excludes every run_id with any such gap (1,311 of 5,572,
-# checked precisely, not estimated from the sample).
+# detector-exposure was actually differenced), not a bug. `search run` now searches the exposures
+# that do have an image, records the ones that don't in `search_missing_image`, and (like salad's
+# searches) carries on: list_vr_run_ids.py lists every run_id with at least $MIN_COVERAGE of its
+# exposures imaged (default 0: any search with two or more). Before that, it excluded all 1,311 of
+# the 5,572 with any gap, 1,244 of which salad had searched on the images it did have.
 #
 # Needs the vendored detect engine built (src/deep_asteroids/util/detect_engine/build.sh)
 # and the Butler registry reachable: source /gscratch/dirac/DEEP/data/credentials first.
@@ -66,11 +68,12 @@ cd "$REPO_ROOT"
 : "${LOG_DIR:=$REPO_ROOT/results/logs}"
 : "${RUN_ID_LIST:=$REPO_ROOT/results/vr_run_ids.txt}"
 : "${SUBMITTED_LIST:=$REPO_ROOT/results/vr_run_ids_submitted.txt}"
+: "${MIN_COVERAGE:=0.0}"  # fraction of a search's exposures that must have an image
 # Only what a worker actually needs -- plain (non-exported) shell variables don't survive
 # into an sbatch job's environment even with --export=ALL, which passes the *process*
 # environment, not this shell's local variables (another one hit the hard way: the worker
 # saw none of these until they were exported here).
-export DEEP_ASTEROIDS_DB DEEP_DB REPO_ROOT RUN_ID_LIST CATALOG_DIR
+export DEEP_ASTEROIDS_DB DEEP_DB REPO_ROOT RUN_ID_LIST CATALOG_DIR MIN_COVERAGE
 
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     # Worker: one array task, one run_id -- line $SLURM_ARRAY_TASK_ID of $RUN_ID_LIST, which
@@ -86,7 +89,7 @@ if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     }
     echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID: $run_id, job $SLURM_JOB_ID, restart count ${SLURM_RESTART_COUNT:-0}" >&2
 
-    deep-asteroids search run --run-id "$run_id" --catalog-dir "$CATALOG_DIR" --remove-catalogs
+    deep-asteroids search run --run-id "$run_id" --catalog-dir "$CATALOG_DIR" --remove-catalogs --min-coverage "$MIN_COVERAGE"
     echo "search_backfill_vr.sh: task $SLURM_ARRAY_TASK_ID: $run_id done" >&2
     exit 0
 fi
@@ -109,7 +112,7 @@ fi
 CANDIDATES="$REPO_ROOT/results/vr_run_ids.txt"
 mkdir -p "$LOG_DIR" "$(dirname "$CANDIDATES")"
 touch "$SUBMITTED_LIST"
-python3 results/list_vr_run_ids.py | grep -vFxf "$SUBMITTED_LIST" > "$CANDIDATES" || true
+python3 results/list_vr_run_ids.py --min-coverage "$MIN_COVERAGE" | grep -vFxf "$SUBMITTED_LIST" > "$CANDIDATES" || true
 n=$(wc -l < "$CANDIDATES")
 if [[ "$n" -eq 0 ]]; then
     echo "search_backfill_vr.sh: nothing left to submit (already done or already in flight)" >&2

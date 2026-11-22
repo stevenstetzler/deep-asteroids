@@ -47,8 +47,11 @@ def searches(ctx, nights, force):
 @click.option("--night", "nights", multiple=True, type=int, help="Only these deep-db nights (repeatable)")
 @click.option("--field", "fields_", multiple=True, type=str, help="Only these deep-db fields (repeatable)")
 @click.option("--force", is_flag=True, help="Replace (night, field) groups that already exist")
+@click.option("--fallback-collection", "fallback_collections", multiple=True,
+              help="A CHAINED collection to scan for (visit, detector) pairs the field's own chain lacks "
+                   "(repeatable; {night} and {field} are filled in), e.g. 'DEEP/{night}/diff_drp'")
 @click.pass_context
-def images(ctx, registry_uri, repo_dir, product_types, nights, fields_, force):
+def images(ctx, registry_uri, repo_dir, product_types, nights, fields_, force, fallback_collections):
     """Link deep-db detector-exposures to Butler dataset paths, one row per
     (detector-exposure, product type).
 
@@ -66,6 +69,7 @@ def images(ctx, registry_uri, repo_dir, product_types, nights, fields_, force):
         summary = ingest_images(
             session, get_deep_db(), registry_uri, repo_dir, product_types,
             nights=list(nights) or None, fields=list(fields_) or None, force=force, deep_db_sha=deep_db_sha(),
+            fallback_collections=fallback_collections,
         )
     click.echo(summary.format())
 

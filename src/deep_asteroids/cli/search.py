@@ -80,9 +80,12 @@ def detect(ctx, run_ids, night, field_, detector_number, band, catalog_dir, thre
 @click.option("--force", is_flag=True, help="Replace runs that already exist")
 @click.option("--remove-catalogs", is_flag=True,
               help="Delete this search's own catalog files once its results are ingested")
+@click.option("--min-coverage", type=click.FloatRange(0.0, 1.0), default=0.0, show_default=True,
+              help="Fraction of a search's exposures that must have an image; exposures without one are "
+                   "skipped and recorded, but a search below this is not run")
 @click.pass_context
 def run(ctx, run_ids, night, field_, detector_number, band, catalog_dir, threshold, polarity, workers, velocity,
-        angle, dx, num_results, refine_iterations, seed, force, remove_catalogs):
+        angle, dx, num_results, refine_iterations, seed, force, remove_catalogs, min_coverage):
     """Detect (any missing catalogs), search and ingest the selected search definitions.
 
     Each run lands under its search definition's run_id, with a search_run
@@ -103,6 +106,6 @@ def run(ctx, run_ids, night, field_, detector_number, band, catalog_dir, thresho
                 session, sd, catalog_dir, detector, velocity=velocity, angle=angle, dx=dx,
                 num_results=num_results, refine_iterations=refine_iterations, seed=seed,
                 workers=workers, force=force,
-                remove_catalogs_after=remove_catalogs,
+                remove_catalogs_after=remove_catalogs, min_coverage=min_coverage,
             )
             click.echo(summary.format())

@@ -26,7 +26,7 @@ from sqlalchemy import delete, func, insert, select
 
 from deep_asteroids.crossmatch.geometry import exposure_times_tai, pair_separations, pairs_within, positions
 from deep_asteroids.database.crossmatch import CrossmatchCandidate, CrossmatchRun, ResultDedup
-from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure
+from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure, band_clause
 from deep_asteroids.database.tracklets import SOURCES, KnownTracklet
 
 DEFAULT_MAX_SEP_ARCSEC = 30.0
@@ -69,8 +69,8 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _runs(session, nights, run_ids):
-    """``[(run_id, search_definition_id, night)]`` of searches that have results."""
+def _runs(session, nights, run_ids, band=Ellipsis):
+    """``[(run_id, search_definition_id, night)]`` of searches that have results (of ``band``, if given)."""
     q = (
         select(Search.run_id, SearchDefinition.id, SearchDefinition.night)
         .join(SearchDefinition, SearchDefinition.run_id == Search.run_id)
@@ -80,6 +80,8 @@ def _runs(session, nights, run_ids):
         q = q.where(SearchDefinition.night.in_(list(nights)))
     if run_ids:
         q = q.where(Search.run_id.in_(list(run_ids)))
+    if (clause := band_clause(band)) is not None:
+        q = q.where(clause)
     return session.execute(q.order_by(SearchDefinition.night, Search.run_id)).all()
 
 
@@ -113,13 +115,13 @@ def _known(session, night, sources):
 
 
 def crossmatch_results(session, nights=None, run_ids=None, sources=DEFAULT_SOURCES,
-                       max_sep_arcsec=DEFAULT_MAX_SEP_ARCSEC, force=False):
+                       max_sep_arcsec=DEFAULT_MAX_SEP_ARCSEC, force=False, band=Ellipsis):
     """Cross-match the results of the selected search runs (default: every
-    run with results) against known tracklets of ``sources`` on the same
-    night. Returns a ``CrossmatchSummary``. Commits."""
+    run with results; ``band`` restricts to one band's searches) against known
+    tracklets of ``sources`` on the same night. Returns a ``CrossmatchSummary``. Commits."""
     summary = CrossmatchSummary()
     known_by_night = {}
-    for run_id, definition_id, night in _runs(session, nights, run_ids):
+    for run_id, definition_id, night in _runs(session, nights, run_ids, band):
         done = session.scalar(select(CrossmatchRun.id).where(CrossmatchRun.run_id == run_id))
         if done is not None and not force:
             summary.skipped_runs.append(run_id)

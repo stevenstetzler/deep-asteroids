@@ -54,7 +54,14 @@ def get_db(echo=False):
     read pass against the same database kept failing with "database is locked" even with the
     busy timeout in place, because the index pass's read transaction could run for minutes,
     longer than any reasonable timeout. WAL lets readers and writers proceed concurrently
-    instead."""
+    instead.
+
+    **WAL needs every process on one host** (its wal-index is shared memory). Jobs on *other* nodes of a
+    shared filesystem -- a Slurm array -- cannot use it reliably: even opening the database and counting a
+    table took minutes on a remote node, and 30 array tasks sat idle for half an hour at 5 s of CPU. A job
+    that only reads should open a read-only snapshot (``VACUUM INTO`` a copy, then
+    ``sqlite:///file:/path/copy.sqlite?mode=ro&immutable=1&uri=true``), which takes no locks and uses no WAL;
+    such a URL is left alone here (no journal-mode pragma)."""
     from sqlalchemy import create_engine, event
     from sqlalchemy.engine import make_url
 
@@ -68,7 +75,10 @@ def get_db(echo=False):
         is_sqlite = make_url(url).get_backend_name() == "sqlite"
         connect_args = {"timeout": SQLITE_BUSY_TIMEOUT_SECONDS} if is_sqlite else {}
         engine = create_engine(url, echo=echo, connect_args=connect_args)
-        if is_sqlite:
+        # a read-only target (``?mode=ro`` / ``immutable=1``, e.g. a snapshot for jobs on many nodes) cannot
+        # change its journal mode, and needs no WAL: it is only read
+        read_only = is_sqlite and ("mode=ro" in url or "immutable=1" in url)
+        if is_sqlite and not read_only:
             @event.listens_for(engine, "connect")
             def _set_wal(dbapi_connection, connection_record):
                 dbapi_connection.execute("PRAGMA journal_mode=WAL")

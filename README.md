@@ -317,9 +317,9 @@ image cold), the search 10 s, the ingest 3 s, and the peak memory was 557 MB
 ## De-duplicating and cross-matching results
 
 ```bash
-deep-asteroids dedup [--night N ...] [--field F ...] [--run-id R ...] [--merge-radius-arcsec 2] [--force]
-deep-asteroids crossmatch [mpc-linked|mpc-observations|mpc-ephemeris|synthetic ...] [--night N ...] [--run-id R ...] \
-    [--max-sep-arcsec 30] [--submitted-radius-arcsec 2] [--known-radius-arcsec 10] [--synthetic-radius-arcsec 2] [--force]
+deep-asteroids dedup [--night N ...] [--field F ...] [--run-id R ...] [--band B] [--merge-radius-arcsec 2] [--force]
+deep-asteroids crossmatch [mpc-linked|mpc-observations|mpc-ephemeris|synthetic ...] [--night N ...] [--run-id R ...] [--band B] \
+    [--max-sep-arcsec 30] [--submitted-radius-arcsec 2] [--known-radius-arcsec 2] [--synthetic-radius-arcsec 2] [--force]
 deep-asteroids query crossmatches [--source S] [--night N] [--run-id R] [--max-mean-sep-arcsec X] [--all] \
     [--authoritative-only] [--header] [--output FILE]
 ```
@@ -459,14 +459,20 @@ without linking overcounts by 46%.
 ## Result statistics, the putative-real filter, and plots
 
 ```bash
-deep-asteroids statistics [--night N ...] [--run-id R ...] [--force]
-deep-asteroids summary [--night N ...] [--run-id R ...] [--all-results] [thresholds]
+deep-asteroids statistics [--night N ...] [--run-id R ...] [--band B] [--force]
+deep-asteroids summary [--night N ...] [--run-id R ...] [--band B] [--all-results] [thresholds]
 deep-asteroids query results [--group G] [--putative-real|--not-putative-real] [--putative-new] [--authoritative-only] \
-    [--limit N] [--header] [--output FILE] [thresholds]
-deep-asteroids plot residuals|sigma-v|magnitudes --out FILE [--night N ...] [--run-id R ...] [--all-results] [thresholds]
+    [--band B] [--limit N] [--header] [--output FILE] [thresholds]
+deep-asteroids plot residuals|sigma-v|magnitudes --out FILE [--night N ...] [--run-id R ...] [--band B] [--all-results] [thresholds]
 deep-asteroids plot completeness --out FILE [--source synthetic|mpchecker] [--min-exposure-fraction 0.5] \
-    [--radius-arcsec X] [--bin-width 0.5] [--night N ...] [--run-id R ...]
+    [--radius-arcsec X] [--bin-width 0.5] [--night N ...] [--run-id R ...] [--band B]
 ```
+
+**`--band`** restricts a command to one band's searches: `--band VR` the `band='VR'` searches, `--band none` the
+undefined-band (all-band, legacy) ones; unset, every band. The legacy and VR searches cover the same sky, so a mixed
+database double-counts objects and `dedup` clusters them together: run `dedup --force` once per band (`--band VR`, then
+`--band none`) to cluster each on its own. With a band, `plot completeness` and `missed-objects` count an object as
+recovered only by a result of that band's searches, not by any search.
 
 **`statistics`** fills `result_statistics`, one row per result, from its own gathered points and tracklet, with
 no cross-match: the **median residual** of its gathered points against its tracklet at each point's time (the
@@ -491,12 +497,15 @@ chance alignments at every contour level tried, where `n_gathered` showed no sep
 residual, while usable, was noisier. The median residual is still computed and plotted (`plot residuals`) as a
 diagnostic; it is no longer the cut.
 
-On night 20190402 (60 searches, 3,003 results = 2,970 distinct objects), the cut keeps **100% of the submitted
-matches (329/329), 100% of the known (60/60) and 89% of the synthetic (140/158)**, the last because most of the
-18 it rejects fail the velocity cut: synthetic objects outside the search's designed speed range. Of the 1,422
-unmatched objects in range, **372 are putative new** (they peak at magnitude 23.5-24.5, faint, where objects not
-yet submitted would be); the 1,001 unmatched outside the range fail the cut by definition, and 1,980 results
-fail the `sigma_v` cut in all. `summary` prints this funnel; `query results` lists the rows.
+On night 20190402 (the 60 band='VR' searches, 3,000 results = 2,972 distinct objects), the cut keeps **100% of
+the submitted matches (329/329), 100% of the known (60/60) and 89% of the synthetic (140/158)**, the last because
+most of the 18 it rejects fail the velocity cut: synthetic objects outside the search's designed speed range. Of the
+1,425 unmatched objects in range, **372 are putative new** (they peak at magnitude 23.5-24.5, faint, where objects
+not yet submitted would be); the 1,000 unmatched outside the range fail the cut by definition, and 1,985 results
+fail the `sigma_v` cut in all. `summary --band VR` prints this funnel; `query results` lists the rows. The legacy
+(undefined-band, salad's) searches of the same night, `--band none`, give 3,003 results = 2,972 distinct objects,
+1,422 unmatched in range with the same 372 putative new, 1,003 outside the range and 1,982 failing `sigma_v`; the
+submitted (329/329), synthetic (140/158) and known (60/60) rows are identical.
 
 **`plot`** writes PNGs (examples for the night in `docs/examples/viz/night_20190402/`): `sigma-v` (log10
 sigma_v by group, with the cut marked -- the putative-real discriminant: matched objects sit in a tight low-
@@ -517,8 +526,9 @@ exposures (for mpchecker, 291 of 294). The
 mpchecker curve (374 findable, 291 recovered, 50% at 23.5) is less certain: its magnitude is a predicted V-band
 `v_mag`, not the survey's band, and its ephemerides have their own uncertainty.
 
-`examples/night_summary.sh` reproduces the whole night from scratch in about a minute (it needs salad's Postgres
-for the results).
+`examples/night_summary.sh` reproduces the whole night from scratch: by default (`BAND=VR`) it runs the night's
+60 searches from the Butler images and summarizes them; `BAND=none` summarizes salad's legacy results instead (it
+needs salad's Postgres for those).
 
 ## Cutouts and forced photometry
 
@@ -641,8 +651,16 @@ result`), matching the figures in `docs/examples/viz/result_20190402_ccd41_24/`.
 deep-asteroids package result (--run-id R | --night N --field F --detector-number D [--band B]) \
     [--result-num N ...] [--web-dir web] [--product-type differenceExp] [--cutout-size 51] \
     [--annotate TEMPLATE] [--force] [--putative-real [--sigma-v-threshold 0.00025]] [--dry-run] \
-    [--movie/--no-movie]
+    [--movie/--no-movie] [--workers N]
 ```
+
+**A search's results are rendered together.** A result's render reads every image it crosses (about 94 files of
+~55 MB for a CCD's night), and all of a search's results cross the same images, so the results of one search are
+measured as a batch (16 at a time): each image is opened once and cut at every result's predicted position in a
+single engine call, instead of once per result. That is ~13x fewer reads for a typical search (~13 putative-real
+results), and the output is byte-identical. `--workers N` overlaps N image reads (the engine mostly waits on
+storage). On `deep-decam-A0b-ccd41-20190402-VR`, 10 putative-real results rendered in 3m49s, where one result alone
+had taken ~6 minutes.
 
 #27's web-based interface, as a plain static site -- no server, nothing dynamic: one cached page
 per result, written to

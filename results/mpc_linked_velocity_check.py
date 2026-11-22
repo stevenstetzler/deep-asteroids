@@ -3,11 +3,13 @@
 For every mpc_linked known tracklet whose fitted track crosses a searched chip for at least half of that
 search's exposures, ignoring speed (the geometry of crossmatch/completeness.py), record whether its speed is
 inside any such search's velocity range and whether a result matched it within the submitted radius (2").
+With a band, only that band's searches are considered, and only a result of one of them counts as a match
+(``VR``; ``none`` for the undefined-band legacy searches; omitted: every search).
 
 Usage (compute node; reads the full-survey database, read-only):
 
     DEEP_ASTEROIDS_DB=sqlite:////path/to/deep_asteroids_full_survey.sqlite \
-        python results/mpc_linked_velocity_check.py mpc_velocity.csv
+        python results/mpc_linked_velocity_check.py mpc_velocity.csv [BAND]
 
 Takes about an hour over the survey. Columns: known_tracklet_id, night, speed, mag (empty for mpc_linked),
 best_run_id (the chip with the most exposures, preferring an in-range search), n_on_chip, n_exposures, v0, v1,
@@ -23,17 +25,22 @@ from deep_asteroids.crossmatch.completeness import inside_quadrilaterals
 from deep_asteroids.crossmatch.geometry import exposure_times_tai, positions
 from deep_asteroids.database import get_db
 from deep_asteroids.database.crossmatch import CrossmatchCandidate
-from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure
+from deep_asteroids.database.search import SearchDefinition, SearchDefinitionExposure, band_clause, parse_band
 from deep_asteroids.database.tracklets import KnownTracklet
 
 RADIUS = 2.0  # --submitted-radius-arcsec default
+BAND = parse_band(sys.argv[2] if len(sys.argv) > 2 else None)
+IN_BAND = None if BAND is Ellipsis else select(Result.id).where(Result.search_id.in_(
+    select(Search.id).where(Search.run_id.in_(select(SearchDefinition.run_id).where(band_clause(BAND))))))
 out = open(sys.argv[1], "w")
 out.write("known_tracklet_id,night,speed,mag,best_run_id,n_on_chip,n_exposures,v0,v1,in_range_any,vmin_all,vmax_all,recovered\n")
 with Session(get_db()) as session:
     runs = session.execute(select(SearchDefinition.id, SearchDefinition.run_id, SearchDefinition.night,
                                   Search.velocity_0, Search.velocity_1)
                            .join(Search, Search.run_id == SearchDefinition.run_id)
-                           .where(Search.id.in_(select(Result.search_id))).order_by(SearchDefinition.run_id)).all()
+                           .where(Search.id.in_(select(Result.search_id)),
+                                  *([] if BAND is Ellipsis else [band_clause(BAND)]))
+                           .order_by(SearchDefinition.run_id)).all()
     by_night = collections.defaultdict(list)
     for r in runs:
         by_night[r[2]].append(r)
@@ -83,9 +90,12 @@ with Session(get_db()) as session:
             ids = list(best)
             rec = set()
             for c in range(0, len(ids), 500):
-                rec.update(session.scalars(select(CrossmatchCandidate.known_tracklet_id).where(
+                q = select(CrossmatchCandidate.known_tracklet_id).where(
                     CrossmatchCandidate.known_tracklet_id.in_(ids[c:c + 500]),
-                    CrossmatchCandidate.mean_sep_arcsec < RADIUS).distinct()).all())
+                    CrossmatchCandidate.mean_sep_arcsec < RADIUS)
+                if IN_BAND is not None:
+                    q = q.where(CrossmatchCandidate.result_id.in_(IN_BAND))
+                rec.update(session.scalars(q.distinct()).all())
             idx = {int(x): i for i, x in enumerate(k[:, 0])}
             for kid, b in best.items():
                 i = idx[kid]

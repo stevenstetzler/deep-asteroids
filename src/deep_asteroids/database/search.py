@@ -94,3 +94,19 @@ class SearchDefinitionExposure(Base):
     dec_11 = Column(Float)
 
     search_definition = relationship("SearchDefinition", back_populates="exposures")
+
+
+def band_clause(band):
+    """A clause on ``SearchDefinition.band`` for ``band`` -- ``Ellipsis`` means any band (returns
+    ``None``: no filter), ``None`` the undefined-band (all-band, legacy) rows, else that band."""
+    if band is Ellipsis:
+        return None
+    return SearchDefinition.band.is_(None) if band is None else SearchDefinition.band == band
+
+
+def parse_band(value):
+    """A command-line ``--band`` into ``band_clause``'s convention: not given means any band
+    (``Ellipsis``), ``''`` or ``none`` the undefined-band rows (``None``), else the band as given."""
+    if value is None:
+        return Ellipsis
+    return None if value.lower() in ("", "none") else value

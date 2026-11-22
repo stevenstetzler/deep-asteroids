@@ -24,7 +24,7 @@ from pathlib import Path
 from find_asteroids.models import Result, Search, Tracklet
 from sqlalchemy import select
 
-from deep_asteroids.viz.result import render_sky_plot, visualize_result
+from deep_asteroids.viz.result import render_sky_plot, visualize_result, visualize_results
 from deep_asteroids.viz.tracklet import render_coadd_plot, render_light_curve_plot
 
 _ARTIFACT_LABELS = (
@@ -326,6 +326,32 @@ def render_result_pdf(sd, run_id, result_num, summary, stats, out_dir):
     fig.savefig(path)
     plt.close(fig)
     return path
+
+
+def package_results(session, engine, sd, result_nums, web_dir, product_type="differenceExp", cutout_size=51,
+                    annotate=None, force=False, movie=True, workers=1, batch_size=16):
+    """``package_result`` for several results of one search, measured together so each image is read once per
+    batch instead of once per result (``viz.result.visualize_results``). Returns ``{result_num: (skipped,
+    path_or_None)}``: ``skipped`` is True for a page that already exists (and ``force`` is not set), ``path`` is
+    None for a result that does not exist."""
+    outcomes, todo = {}, []
+    for n in result_nums:
+        index_path = result_dir(web_dir, sd, n) / "index.html"
+        if index_path.exists() and not force:
+            outcomes[n] = (True, index_path)
+        else:
+            todo.append(n)
+    for n, out_dir, summary in visualize_results(
+            session, engine, sd.run_id, todo, lambda num: result_dir(web_dir, sd, num), product_type=product_type,
+            cutout_size=cutout_size, annotate=annotate, movie=movie, workers=workers, batch_size=batch_size):
+        if summary is None:
+            outcomes[n] = (False, None)
+            continue
+        stats = _result_stats(session, sd.run_id, n)
+        pdf_path = render_result_pdf(sd, sd.run_id, n, summary, stats, out_dir)
+        render_result_page(sd, sd.run_id, n, summary, stats, out_dir, pdf_path=pdf_path)
+        outcomes[n] = (False, out_dir / "index.html")
+    return outcomes
 
 
 def package_result(session, engine, sd, result_num, web_dir, product_type="differenceExp", cutout_size=51,

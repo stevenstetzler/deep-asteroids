@@ -2,8 +2,11 @@
 # Generates docs/results/: the full-survey funnel and summary plots, for #15.
 #
 # Unlike examples/night_summary.sh (one validation night, 60 searches), this
-# covers the whole survey: all 5,573 runs in $RESULTS_DB (salad's Postgres by
-# default), ~64 nights, ~277k results. No --night/--field filter anywhere.
+# covers the whole survey: ~64 nights, ~277k results, no --night/--field filter anywhere. $BAND
+# (default VR) picks which searches the funnel and plots describe: the band='VR' searches
+# (`search_backfill_vr.sh`, #28), or BAND=none for salad's 5,573 legacy (undefined-band) runs in
+# $RESULTS_DB (salad's Postgres by default). Both are ingested/searched in the same database and every
+# stage below takes --band, so the two never mix.
 #
 # What it does:
 #   1. ingests every search definition and known tracklet (MPC observations,
@@ -25,6 +28,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 : "${RESULTS_DB:=postgresql://${USER}@localhost:55432/salad}"
+: "${BAND:=VR}"
 : "${OUT_DIR:=../docs/results}"
 : "${DEEP_ASTEROIDS_DB:?Set DEEP_ASTEROIDS_DB, e.g. sqlite:////gscratch/<group>/$USER/deep_asteroids_full_survey.sqlite}"
 : "${DEEP_DB:?Set DEEP_DB to a cached deep-db copy, e.g. from 'deep-asteroids database fetch-deep-db'}"
@@ -34,16 +38,16 @@ deep-asteroids database create
 deep-asteroids ingest searches
 deep-asteroids ingest tracklets synthetic mpc-observations mpc-ephemeris
 deep-asteroids link
-deep-asteroids ingest results --results-db "$RESULTS_DB"
-deep-asteroids dedup
-deep-asteroids crossmatch
-deep-asteroids statistics
+deep-asteroids ingest results --results-db "$RESULTS_DB"  # the legacy (undefined-band) results; the VR ones come from `search run`
+deep-asteroids dedup --band "$BAND"
+deep-asteroids crossmatch --band "$BAND"
+deep-asteroids statistics --band "$BAND"
 
 echo; echo "== the funnel"
-deep-asteroids summary
+deep-asteroids summary --band "$BAND"
 
 mkdir -p "$OUT_DIR"
-deep-asteroids plot residuals --out "$OUT_DIR/residuals.png"
-deep-asteroids plot sigma-v --out "$OUT_DIR/sigma_v.png"
-deep-asteroids plot magnitudes --out "$OUT_DIR/magnitudes.png"
-deep-asteroids plot completeness --out "$OUT_DIR/completeness.png" --source synthetic
+deep-asteroids plot residuals --band "$BAND" --out "$OUT_DIR/residuals.png"
+deep-asteroids plot sigma-v --band "$BAND" --sigma-v-threshold 0.00015 --out "$OUT_DIR/sigma_v.png"
+deep-asteroids plot magnitudes --band "$BAND" --out "$OUT_DIR/magnitudes.png"
+deep-asteroids plot completeness --band "$BAND" --out "$OUT_DIR/completeness.png" --source synthetic
