@@ -3,9 +3,10 @@ Timing uncertainty against numbered known objects (#46).
 
 How sensitive the positional agreement of `astrometric_uncertainty.py` is to a timing error in the
 known objects' ephemerides: for a grid of offsets applied to the known tracklet's evaluation time
-(default +-1s, 0.05s steps -- 41 points), redoes the detection-level positional comparison (the same
-numbered-object matches, the same 1" detection radius) and logs the median and standard deviation of
-the kept dRA/dDec at that offset, to a CSV and a 1D plot (offset on the x-axis; dRA in C0, dDec in C1).
+(default [0, 2]s, 0.01s steps -- 201 points), redoes the detection-level positional comparison (the
+same numbered-object matches, the same 1" detection radius) and logs the median and standard
+deviation of the kept dRA/dDec at that offset, to a CSV and a 1D plot (offset on the x-axis; dRA in
+C0, dDec in C1).
 
 The crossmatch pairs and their gathered detections are fetched once and reused across every grid
 point, so the whole scan costs about one `astrometric_uncertainty.py` run, not 41 of them.
@@ -30,9 +31,9 @@ from deep_asteroids.crossmatch.uncertainty import (
 from deep_asteroids.database import get_db
 from deep_asteroids.database.search import parse_band
 
-DEFAULT_MIN_OFFSET_SECONDS = -1.0
-DEFAULT_MAX_OFFSET_SECONDS = 1.0
-DEFAULT_STEP_SECONDS = 0.05
+DEFAULT_MIN_OFFSET_SECONDS = 0.0
+DEFAULT_MAX_OFFSET_SECONDS = 2.0
+DEFAULT_STEP_SECONDS = 0.01
 
 
 def parse_args(argv=None):

@@ -111,13 +111,13 @@ as a diagnostic; it is no longer the cut.
   dropped): the scatter widens steadily fainter than ~mag 18, as
   expected for shot-noise-limited centroiding, and stays essentially
   flat and tight (well under 0.25") brightward of it.
-- **`timing_uncertainty.png`** -- median +- std of dRA (C0)/dDec (C1)
-  against a timing offset applied to the known objects' own evaluation
-  time, scanned over +-1s in 0.05s steps (`results/timing_uncertainty.py`):
-  the std stays flat at ~0.13-0.15" across the whole range (timing is not
-  the limiting term) and the median drifts only slightly (a few mas per
-  0.1s, from the matched objects' own on-sky motion), with no sign of an
-  offset at a particular timing value that would improve agreement.
+- **`timing_uncertainty.png`** -- median dRA (C0)/dDec (C1) against a
+  timing offset applied to the known objects' own evaluation time,
+  scanned over [0, 2]s in 0.01s steps (`results/timing_uncertainty.py`;
+  the standard deviation is logged to `timing_uncertainty.csv` but not
+  plotted): a smooth, nearly linear drift of only a few mas per 0.1s
+  over the whole range, from the matched objects' own on-sky motion --
+  no sign of a particular offset that would sharply improve agreement.
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
 via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness --band VR` and
@@ -149,8 +149,9 @@ docstring for its arguments):
   `--timing-offset-seconds` applies a one-off shift to the known tracklet's evaluation time before
   comparing, for a quick check; the next script scans a whole grid of them.
 - `results/timing_uncertainty.py` -- the same comparison, redone at a grid of timing offsets
-  (default +-1s, 0.05s steps) applied to the known tracklet's evaluation time, logging the median
-  and standard deviation of the kept dRA/dDec at each one (`timing_uncertainty.csv`) and the
-  `timing_uncertainty.png` plot above. The crossmatch pairs and their gathered detections are
-  fetched once and reused across every grid point, so the 41-point default scan costs about one
-  `astrometric_uncertainty.py` run (under a minute over the VR full-survey results), not 41 of them.
+  (default [0, 2]s, 0.01s steps -- 201 points) applied to the known tracklet's evaluation time,
+  logging the median and standard deviation of the kept dRA/dDec at each one
+  (`timing_uncertainty.csv`) and plotting the median (`timing_uncertainty.png` above). The
+  crossmatch pairs and their gathered detections are fetched once and reused across every grid
+  point, so the 201-point default scan still costs only ~3 minutes over the VR full-survey
+  results, not 201x a single-offset run.

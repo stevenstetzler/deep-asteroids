@@ -262,21 +262,22 @@ def plot_position_residuals_vs_mag(rows, path, median_mag_by_object, bin_width=0
 
 
 def plot_time_offset_scan(rows, path):
-    """Median +- std of dRA (C0)/dDec (C1) against the timing offset applied to the known tracklets'
-    evaluation time (``uncertainty.time_offset_scan``, ``results/timing_uncertainty.py``, #46)."""
+    """Median dRA (C0)/dDec (C1) against the timing offset applied to the known tracklets'
+    evaluation time (``uncertainty.time_offset_scan``, ``results/timing_uncertainty.py``, #46).
+    The standard deviation is logged (``write_time_offset_csv``) but not plotted here."""
     plt = _plt()
     rows = [r for r in rows if r.n > 0]
     if not rows:
         raise ValueError("no time-offset scan rows to plot")
     offsets = np.array([r.offset_seconds for r in rows])
     fig, ax = plt.subplots(figsize=(9, 6))
-    for values, errs, label, color in (
-            ([r.median_dra_arcsec for r in rows], [r.std_dra_arcsec for r in rows], "dRA", "C0"),
-            ([r.median_ddec_arcsec for r in rows], [r.std_ddec_arcsec for r in rows], "dDec", "C1")):
-        ax.errorbar(offsets, values, yerr=errs, fmt="o-", color=color, capsize=3, label=label)
+    for values, label, color in (
+            ([r.median_dra_arcsec for r in rows], "dRA", "C0"),
+            ([r.median_ddec_arcsec for r in rows], "dDec", "C1")):
+        ax.plot(offsets, values, color=color, label=label)
     ax.axvline(0.0, color="k", ls="--", lw=1)
     ax.set_xlabel("time offset applied to the known tracklet's evaluation time (s)")
-    ax.set_ylabel("residual (observed - predicted, arcsec); points: median, bars: std")
+    ax.set_ylabel("median residual (observed - predicted, arcsec)")
     ax.set_title("positional residuals vs. a timing offset in the known objects' ephemerides")
     ax.legend()
     ax.grid(alpha=0.25)
