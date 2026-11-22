@@ -111,9 +111,46 @@ as a diagnostic; it is no longer the cut.
   dropped): the scatter widens steadily fainter than ~mag 18, as
   expected for shot-noise-limited centroiding, and stays essentially
   flat and tight (well under 0.25") brightward of it.
+- **`timing_uncertainty.png`** -- median +- std of dRA (C0)/dDec (C1)
+  against a timing offset applied to the known objects' own evaluation
+  time, scanned over +-1s in 0.05s steps (`results/timing_uncertainty.py`):
+  the std stays flat at ~0.13-0.15" across the whole range (timing is not
+  the limiting term) and the median drifts only slightly (a few mas per
+  0.1s, from the matched objects' own on-sky motion), with no sign of an
+  offset at a particular timing value that would improve agreement.
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
-via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness/position-residuals/position-residuals-vs-mag --band VR` and
+via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness --band VR` and
 `deep-asteroids summary --band VR` (`--band none` for the legacy column; defaults: 2" submitted/synthetic/known
-radius, sigma_v < 0.00025 deg/day, authoritative objects only; the position-residuals plots use the default 2"
-match / 1" detection radius), after `statistics`, `crossmatch` and `dedup --force` were run once per band.
+radius, sigma_v < 0.00025 deg/day, authoritative objects only), after `statistics`, `crossmatch` and
+`dedup --force` were run once per band.
+
+The two position/timing-uncertainty plots (#46) are produced by standalone scripts instead (see
+"Positional and timing uncertainty against numbered known objects" below):
+
+```bash
+DEEP_ASTEROIDS_DB=sqlite:////gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite python \
+  results/astrometric_uncertainty.py --band VR --out-hist docs/results/position_residuals.png \
+  --out-vs-mag docs/results/position_residuals_vs_mag.png
+DEEP_ASTEROIDS_DB=sqlite:////gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite python \
+  results/timing_uncertainty.py --band VR --out-plot docs/results/timing_uncertainty.png
+```
+
+## Positional and timing uncertainty against numbered known objects (#46)
+
+Two scripts, run from a compute node against the full-survey database (read-only; see each script's
+docstring for its arguments):
+
+- `results/astrometric_uncertainty.py` -- numbered objects (`permid` set) a result matched within
+  2", compared against that result's own gathered detections within 1" of the object's predicted
+  position, as dRA/dDec residuals (observed - predicted). Writes a per-detection CSV and the
+  `position_residuals*.png` plots above. 1,374,671 detections of 20,030 numbered objects over the
+  VR searches, residuals tightly centred on zero (median -0.016"/-0.031", std 0.145"/0.136").
+  `--timing-offset-seconds` applies a one-off shift to the known tracklet's evaluation time before
+  comparing, for a quick check; the next script scans a whole grid of them.
+- `results/timing_uncertainty.py` -- the same comparison, redone at a grid of timing offsets
+  (default +-1s, 0.05s steps) applied to the known tracklet's evaluation time, logging the median
+  and standard deviation of the kept dRA/dDec at each one (`timing_uncertainty.csv`) and the
+  `timing_uncertainty.png` plot above. The crossmatch pairs and their gathered detections are
+  fetched once and reused across every grid point, so the 41-point default scan costs about one
+  `astrometric_uncertainty.py` run (under a minute over the VR full-survey results), not 41 of them.

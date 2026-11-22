@@ -9,7 +9,9 @@ from deep_asteroids.crossmatch.uncertainty import (
     bin_residuals_by_magnitude,
     median_mag_by_object,
     position_residuals,
+    time_offset_scan,
     write_residuals_csv,
+    write_time_offset_csv,
 )
 from deep_asteroids.database import create_db
 
@@ -122,3 +124,39 @@ def test_bin_residuals_by_magnitude_drops_sparse_bins():
 def test_bin_residuals_by_magnitude_skips_objects_with_no_magnitude():
     rows = [_row(1, 0.0)] * 10
     assert bin_residuals_by_magnitude(rows, {}, bin_width=0.5, min_n=5) == []
+
+
+def test_time_offset_scan_shifts_ddec_by_vdec_times_the_offset(session):
+    # the gathered points sit exactly on the known object's own track: zero residual at offset 0
+    _result, known = _setup(session, [0.0] * h.N_EXPOSURES)
+    offsets = [0.0, 1.0, -1.0]
+    rows = time_offset_scan(session, offsets)
+    assert [r.offset_seconds for r in rows] == offsets
+    assert all(r.n == h.N_EXPOSURES for r in rows)
+    by_offset = {r.offset_seconds: r for r in rows}
+    assert by_offset[0.0].median_dra_arcsec == pytest.approx(0.0, abs=1e-9)
+    assert by_offset[0.0].median_ddec_arcsec == pytest.approx(0.0, abs=1e-9)
+    assert by_offset[0.0].std_dra_arcsec == pytest.approx(0.0, abs=1e-9)
+    # ddec = obs - pred(t + offset): a positive offset moves the prediction forward along vdec,
+    # so the residual shifts by -vdec * offset_days
+    expected = -V["vdec"] * (1.0 / 86400.0) * 3600.0
+    assert by_offset[1.0].median_ddec_arcsec == pytest.approx(expected, rel=1e-6)
+    assert by_offset[-1.0].median_ddec_arcsec == pytest.approx(-expected, rel=1e-6)
+
+
+def test_time_offset_scan_emits_a_nan_row_when_nothing_is_kept(session):
+    # a zero detection radius ("< 0") keeps nothing, even at the exact track -- the row is still
+    # emitted, with n=0 and NaN stats
+    _result, known = _setup(session, [0.0] * h.N_EXPOSURES)
+    rows = time_offset_scan(session, [0.0], detection_radius_arcsec=0.0)
+    assert rows[0].n == 0
+    assert np.isnan(rows[0].median_dra_arcsec) and np.isnan(rows[0].std_ddec_arcsec)
+
+
+def test_write_time_offset_csv_round_trips(session, tmp_path):
+    _result, known = _setup(session, [0.0] * h.N_EXPOSURES)
+    rows = time_offset_scan(session, [0.0, 0.5])
+    out = write_time_offset_csv(rows, tmp_path / "time_offset.csv")
+    lines = out.read_text().splitlines()
+    assert lines[0] == "offset_seconds,n,median_dra_arcsec,std_dra_arcsec,median_ddec_arcsec,std_ddec_arcsec"
+    assert len(lines) == 1 + len(rows)
