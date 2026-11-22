@@ -182,3 +182,103 @@ def plot_completeness(completeness, path, source="synthetic", bin_width=0.5, rad
     ax_n.set_ylabel("objects")
     ax_n.legend(fontsize=8)
     return _save(fig, path)
+
+
+def plot_position_residuals_hist(rows, path, range_arcsec=2.0, bin_width_arcsec=0.05):
+    """Histograms of ``dra_arcsec``/``ddec_arcsec`` over numbered known objects' matched
+    detections (#46): how well a result's gathered points track the known object's own fit."""
+    plt = _plt()
+    if not rows:
+        raise ValueError("no position residuals to plot")
+    dra = np.array([r.dra_arcsec for r in rows])
+    ddec = np.array([r.ddec_arcsec for r in rows])
+    edges = np.arange(-range_arcsec, range_arcsec + bin_width_arcsec, bin_width_arcsec)
+    fig, (ax_ra, ax_dec) = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    for ax, values, label in ((ax_ra, dra, "dRA"), (ax_dec, ddec, "dDec")):
+        v = values[(values >= edges[0]) & (values <= edges[-1])]
+        ax.hist(v, bins=edges, color="tab:blue", alpha=0.8)
+        ax.axvline(0.0, color="k", ls="--", lw=1)
+        ax.set_xlabel(f"{label} (observed - predicted, arcsec)")
+        ax.set_title(f"{label}: median {np.median(values):+.3f}\", std {values.std():.3f}\" (n={len(values):,})")
+        ax.grid(alpha=0.25)
+    ax_ra.set_ylabel("detections")
+    fig.suptitle("positional residuals of detections against numbered known objects' tracklets")
+    return _save(fig, path)
+
+
+def _density_contours(ax, x, y, bins=60, levels=(0.5, 0.8, 0.95), color="black"):
+    """Contours enclosing ``levels`` fractions of the points (corner-plot style): a 2D histogram,
+    lightly Gaussian-smoothed so the contours aren't bin-edge-jagged, contoured at the density
+    thresholds whose enclosed (highest-density-first) mass reaches each fraction."""
+    from scipy.ndimage import gaussian_filter
+
+    counts, xedges, yedges = np.histogram2d(x, y, bins=bins)
+    counts = gaussian_filter(counts, sigma=1.0)
+    flat = np.sort(counts.ravel())[::-1]
+    cumulative = np.cumsum(flat)
+    cumulative /= cumulative[-1]
+    thresholds = sorted({float(flat[np.searchsorted(cumulative, lvl)]) for lvl in levels})
+    if len(thresholds) < 2:  # too few points/bins to separate levels -- nothing meaningful to contour
+        return
+    xc, yc = (xedges[:-1] + xedges[1:]) / 2, (yedges[:-1] + yedges[1:]) / 2
+    ax.contour(xc, yc, counts.T, levels=thresholds, colors=color, linewidths=1.2, zorder=5)
+
+
+def plot_position_residuals_vs_mag(rows, path, median_mag_by_object, bin_width=0.5, min_n=20):
+    """``dra_arcsec``/``ddec_arcsec`` of every detection against its object's median magnitude
+    (``median_mag_by_object``, from ``uncertainty.median_mag_by_object``); detections of an
+    object with no magnitude are left out (#46). Shown as density contours with the individual
+    detections underneath at low alpha, overlaid with each magnitude bin's median and +-1/2/3
+    robust sigma (``uncertainty.bin_residuals_by_magnitude``)."""
+    from deep_asteroids.crossmatch.uncertainty import bin_residuals_by_magnitude
+
+    plt = _plt()
+    pts = [(median_mag_by_object[r.known_tracklet_id], r.dra_arcsec, r.ddec_arcsec)
+           for r in rows if r.known_tracklet_id in median_mag_by_object]
+    if not pts:
+        raise ValueError("no position residuals with a magnitude to plot")
+    mag, dra, ddec = (np.array(v) for v in zip(*pts))
+    bins = bin_residuals_by_magnitude(rows, median_mag_by_object, bin_width, min_n)
+    centres = np.array([(b[0] + b[1]) / 2 for b in bins])
+    fig, (ax_ra, ax_dec) = plt.subplots(1, 2, figsize=(12, 5), sharex=True, sharey=True)
+    for ax, values, label, med_col, sigma_col in (
+            (ax_ra, dra, "dRA", 3, 4), (ax_dec, ddec, "dDec", 5, 6)):
+        ax.scatter(mag, values, s=3, alpha=0.02, color="tab:blue", rasterized=True)
+        _density_contours(ax, mag, values)
+        ax.axhline(0.0, color="k", ls="--", lw=1)
+        if len(bins):
+            median = np.array([b[med_col] for b in bins])
+            sigma = np.array([b[sigma_col] for b in bins])
+            ax.plot(centres, median, color="k", lw=1.5, label="median")
+            for k, alpha in ((1, 0.9), (2, 0.6), (3, 0.35)):
+                ax.plot(centres, median + k * sigma, color="tab:red", lw=1, alpha=alpha, label=f"+-{k}sigma (MAD)")
+                ax.plot(centres, median - k * sigma, color="tab:red", lw=1, alpha=alpha)
+            ax.legend(fontsize=7, loc="upper left")
+        ax.set_xlabel("object's median magnitude (within 1\")")
+        ax.set_ylabel(f"{label} (observed - predicted, arcsec)")
+        ax.grid(alpha=0.25)
+    fig.suptitle(f"positional residuals vs. magnitude (n={len(pts):,} detections, {bin_width:g}-mag bins, n>={min_n})")
+    return _save(fig, path)
+
+
+def plot_time_offset_scan(rows, path):
+    """Median dRA (C0)/dDec (C1) against the timing offset applied to the known tracklets'
+    evaluation time (``uncertainty.time_offset_scan``, ``results/timing_uncertainty.py``, #46).
+    The standard deviation is logged (``write_time_offset_csv``) but not plotted here."""
+    plt = _plt()
+    rows = [r for r in rows if r.n > 0]
+    if not rows:
+        raise ValueError("no time-offset scan rows to plot")
+    offsets = np.array([r.offset_seconds for r in rows])
+    fig, ax = plt.subplots(figsize=(9, 6))
+    for values, label, color in (
+            ([r.median_dra_arcsec for r in rows], "dRA", "C0"),
+            ([r.median_ddec_arcsec for r in rows], "dDec", "C1")):
+        ax.plot(offsets, values, color=color, label=label)
+    ax.axvline(0.0, color="k", ls="--", lw=1)
+    ax.set_xlabel("time offset applied to the known tracklet's evaluation time (s)")
+    ax.set_ylabel("median residual (observed - predicted, arcsec)")
+    ax.set_title("positional residuals vs. a timing offset in the known objects' ephemerides")
+    ax.legend()
+    ax.grid(alpha=0.25)
+    return _save(fig, path)

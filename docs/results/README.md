@@ -97,9 +97,62 @@ as a diagnostic; it is no longer the cut.
   objects vs. magnitude (24,843 findable, 9,020 recovered overall; the legacy
   searches give 24,845 and 9,022). A band is recovered only by its own results
   (`--band VR`), not by a legacy match.
+- **`position_residuals.png`** -- histograms of dRA/dDec (observed -
+  predicted, arcsec) for the 1,374,671 detections of the 20,030 numbered
+  known objects (permid set) a result matched within 2" (#46): both are
+  tightly centred on zero (median -0.016"/-0.031", std 0.145"/0.136"),
+  confirming find-asteroids' detections, deep-db's exposure midpoints and
+  the known-object fits all agree at the ~0.1-0.2" level.
+- **`position_residuals_vs_mag.png`** -- the same per-detection dRA/dDec
+  against the object's own median magnitude (over its detections within
+  1"), shown as 50/80/95% density contours over the individual
+  detections (faint, underneath), with each 0.5-mag bin's median and
+  +-1/2/3 robust (MAD) sigma overlaid (bins under 20 detections
+  dropped): the scatter widens steadily fainter than ~mag 18, as
+  expected for shot-noise-limited centroiding, and stays essentially
+  flat and tight (well under 0.25") brightward of it.
+- **`timing_uncertainty.png`** -- median dRA (C0)/dDec (C1) against a
+  timing offset applied to the known objects' own evaluation time,
+  scanned over [0, 3]s in 0.05s steps (`results/timing_uncertainty.py`;
+  the standard deviation is logged to `timing_uncertainty.csv` but not
+  plotted): a smooth, nearly linear drift of only a few mas per 0.1s
+  over the whole range (dRA crosses zero around ~2.1s), from the
+  matched objects' own on-sky motion -- no sign of a particular offset
+  that would sharply improve agreement.
 
 Produced from `/gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite`
 via `deep-asteroids plot sigma-v/residuals/magnitudes/completeness --band VR` and
 `deep-asteroids summary --band VR` (`--band none` for the legacy column; defaults: 2" submitted/synthetic/known
 radius, sigma_v < 0.00025 deg/day, authoritative objects only), after `statistics`, `crossmatch` and
 `dedup --force` were run once per band.
+
+The two position/timing-uncertainty plots (#46) are produced by standalone scripts instead (see
+"Positional and timing uncertainty against numbered known objects" below):
+
+```bash
+DEEP_ASTEROIDS_DB=sqlite:////gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite python \
+  results/astrometric_uncertainty.py --band VR --out-hist docs/results/position_residuals.png \
+  --out-vs-mag docs/results/position_residuals_vs_mag.png
+DEEP_ASTEROIDS_DB=sqlite:////gscratch/dirac/stevengs/claude/deep_asteroids_full_survey.sqlite python \
+  results/timing_uncertainty.py --band VR --out-plot docs/results/timing_uncertainty.png
+```
+
+## Positional and timing uncertainty against numbered known objects (#46)
+
+Two scripts, run from a compute node against the full-survey database (read-only; see each script's
+docstring for its arguments):
+
+- `results/astrometric_uncertainty.py` -- numbered objects (`permid` set) a result matched within
+  2", compared against that result's own gathered detections within 1" of the object's predicted
+  position, as dRA/dDec residuals (observed - predicted). Writes a per-detection CSV and the
+  `position_residuals*.png` plots above. 1,374,671 detections of 20,030 numbered objects over the
+  VR searches, residuals tightly centred on zero (median -0.016"/-0.031", std 0.145"/0.136").
+  `--timing-offset-seconds` applies a one-off shift to the known tracklet's evaluation time before
+  comparing, for a quick check; the next script scans a whole grid of them.
+- `results/timing_uncertainty.py` -- the same comparison, redone at a grid of timing offsets
+  (default [0, 3]s, 0.05s steps -- 61 points) applied to the known tracklet's evaluation time,
+  logging the median and standard deviation of the kept dRA/dDec at each one
+  (`timing_uncertainty.csv`) and plotting the median (`timing_uncertainty.png` above). The
+  crossmatch pairs and their gathered detections are fetched once and reused across every grid
+  point, so the default scan still costs only about a minute and a half over the VR full-survey
+  results, not 61x a single-offset run.
