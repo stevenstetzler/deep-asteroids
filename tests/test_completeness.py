@@ -80,7 +80,7 @@ def _scene(session):
         ids[name] = k.id
     # E moves 0.45 deg/day; at the middle exposure it is 0.037 deg (on the sky) right of centre, so it is inside
     # (u < 0.03) for exposures 0-3 and outside from the 4th on
-    e_ra = h.BASE[0] + 0.037 / np.cos(np.radians(h.BASE[1]))
+    e_ra = float(h.BASE[0] + 0.037 / np.cos(np.radians(h.BASE[1])))  # plain float: psycopg2 can't adapt np.float64
     ids["E"] = h.add_known(session, "synthetic", e_ra, h.BASE[1], 0.45, 0.0, orbit_id=ord("E"), component="primary",
                            mag=23.0).id
     session.commit()

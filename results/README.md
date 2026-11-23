@@ -151,3 +151,14 @@ survey, all 5,568 legacy runs with results have the same exposures (435,908 in t
 so there is nothing salad searched that a VR search cannot. 1,245 of those searches cover fewer exposures than their
 search definition because the Butler registry has no differenceExp for the rest; salad skipped the same ones, and
 `search run` now does too (see `search_missing_image`).
+
+## Transition to Postgres (#47)
+
+`migrate_to_postgres.py` migrated the full-survey SQLite database into Postgres (see the top-level
+README's "Postgres" section for connecting to it): a bulk `COPY`-based loader, not row-by-row
+inserts -- 73,633,994 rows across 16 tables in ~29 minutes, dominated by `gathered` (44.8M) and
+`points` (24.1M). Source vs. destination row counts are verified per table as it runs. The production
+database now lives at `postgresql://$USER@localhost:55432/deep_asteroids` on the project's existing
+Postgres cluster, not the `.sqlite` file, going forward -- every number in `docs/results/README.md`
+was reproduced against it (`deep-asteroids summary --band VR`, `missed-objects --source mpc_linked`)
+before the switch.

@@ -68,6 +68,7 @@ def test_get_db_connect_args_only_set_sqlite_busy_timeout_for_sqlite(monkeypatch
     database._engines.clear()
 
 
+@pytest.mark.sqlite_only
 def test_get_db_sqlite_busy_timeout_lets_a_second_writer_wait(db_url, monkeypatch):
     """Behavioral check, not just a wiring check: with the busy timeout in place, a writer
     that finds the database locked waits for it (and succeeds) instead of raising
@@ -190,6 +191,7 @@ def test_cached_sha256_reads_sidecar_only(tmp_path):
     assert cached_sha256(db) == "abc123"
 
 
+@pytest.mark.sqlite_only
 def test_read_only_snapshot_opens_without_a_journal_mode_change(db_url, tmp_path, monkeypatch):
     """A job on another node reads a ``VACUUM INTO`` snapshot opened ``mode=ro&immutable=1``: WAL does not work
     across hosts. Opening it must not try to switch the journal mode (it could not), and it must not create a

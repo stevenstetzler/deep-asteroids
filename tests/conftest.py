@@ -1,14 +1,20 @@
 """
 Shared fixtures: a small, fully synthetic deep-db and an empty
-deep-asteroids database, both temporary SQLite files. No network, no
-Postgres.
+deep-asteroids database.
 
 The deep-db fixture is built from deep-db's own models (so it tracks the
 pinned deep-db schema exactly) and seeded with one night of known
 geometry and one object of each kind phase 1 ingests: an MPC observation
 tracklet, an mpchecker ephemeris object, a single fake, and a fake
 binary (primary + companion).
+
+The deep-asteroids database (``db_url``) defaults to a fresh, temporary SQLite
+file per test -- no network, no Postgres. ``--db-backend=postgres``/``both``
+(#47) also runs the suite against a scratch Postgres database on the cluster
+already used for salad/tracklet; see ``db_url``.
 """
+import getpass
+import os
 from datetime import datetime, timedelta
 
 import pytest
@@ -190,12 +196,75 @@ def deep_db_url(deep_db_path, monkeypatch):
     return url
 
 
-@pytest.fixture
-def db_url(tmp_path, monkeypatch):
-    """$DEEP_ASTEROIDS_DB pointed at a fresh, empty SQLite file; engines disposed afterwards."""
-    from deep_asteroids.database import dispose_engines
+def pytest_addoption(parser):
+    parser.addoption(
+        "--db-backend", action="store", default="sqlite", choices=("sqlite", "postgres", "both"),
+        help="Which deep-asteroids DB backend(s) to run db_url-dependent tests against (#47)")
 
-    url = f"sqlite:///{tmp_path / 'deep_asteroids.sqlite'}"
-    monkeypatch.setenv("DEEP_ASTEROIDS_DB", url)
+
+def pytest_generate_tests(metafunc):
+    if "db_url" in metafunc.fixturenames:
+        if metafunc.definition.get_closest_marker("sqlite_only"):
+            backends = ["sqlite"]  # e.g. SQLite's own WAL/busy-timeout/VACUUM behavior -- no Postgres equivalent
+        else:
+            backends = {"sqlite": ["sqlite"], "postgres": ["postgres"], "both": ["sqlite", "postgres"]}[
+                metafunc.config.getoption("--db-backend")]
+        metafunc.parametrize("db_url", backends, indirect=True, ids=backends)
+
+
+def _postgres_test_url():
+    """The scratch Postgres database ``db_url`` uses for ``--db-backend=postgres``/``both``:
+    ``$DEEP_ASTEROIDS_TEST_PG_URL`` if set, else ``deep_asteroids_test`` on the cluster the
+    project already runs for salad/tracklet (localhost:55432, trust auth)."""
+    return os.environ.get(
+        "DEEP_ASTEROIDS_TEST_PG_URL", f"postgresql://{getpass.getuser()}@localhost:55432/deep_asteroids_test")
+
+
+def _ensure_postgres_database(url):
+    """Creates the database named in ``url`` if it doesn't exist yet (``CREATE DATABASE`` can't run
+    against the database it's creating, so this connects to the server's own ``postgres`` database).
+    Raises if the server itself isn't reachable."""
+    import psycopg2
+    from psycopg2 import errors
+    from sqlalchemy.engine import make_url
+
+    parsed = make_url(url)
+    conn = psycopg2.connect(host=parsed.host, port=parsed.port or 5432, user=parsed.username, dbname="postgres")
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f'CREATE DATABASE "{parsed.database}"')
+            except errors.DuplicateDatabase:
+                pass
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def db_url(request, tmp_path, monkeypatch):
+    """$DEEP_ASTEROIDS_DB pointed at a fresh database; engines disposed afterwards.
+
+    Defaults (``request.param`` unset, or ``"sqlite"``) to a fresh, empty SQLite file -- one per
+    test, free isolation. With ``"postgres"`` (``--db-backend=postgres``/``both``; see
+    ``pytest_generate_tests``), points at the scratch database ``_postgres_test_url`` names instead;
+    since that one database is reused across tests (there's no cheap per-test database the way a
+    temp file is), isolation instead comes from dropping and recreating every table
+    (``create_db(force=True)``) before each test. Skipped if that Postgres cluster isn't reachable,
+    so `--db-backend=postgres`/`both` degrade gracefully rather than failing every test."""
+    from deep_asteroids.database import create_db, dispose_engines
+
+    backend = getattr(request, "param", "sqlite")
+    if backend == "sqlite":
+        url = f"sqlite:///{tmp_path / 'deep_asteroids.sqlite'}"
+        monkeypatch.setenv("DEEP_ASTEROIDS_DB", url)
+    else:
+        url = _postgres_test_url()
+        try:
+            _ensure_postgres_database(url)
+        except Exception as error:
+            pytest.skip(f"Postgres cluster not reachable at {url}: {error}")
+        monkeypatch.setenv("DEEP_ASTEROIDS_DB", url)
+        create_db(force=True)
     yield url
     dispose_engines()

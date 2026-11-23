@@ -51,6 +51,9 @@ write_to = "src/deep_asteroids/_version.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "sqlite_only: a db_url-dependent test that only makes sense against SQLite (e.g. its own WAL/busy-timeout/VACUUM behavior) -- runs with --db-backend=postgres/both too, but always against sqlite.",
+]
 
 [tool.ruff]
 line-length = 110
