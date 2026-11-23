@@ -73,6 +73,34 @@ After a schema change, recreate the database and re-run the ingest steps:
 deep-asteroids database create --force
 ```
 
+### Postgres (#47)
+
+SQLite's WAL mode (the default for a local file) is a stopgap for concurrent writers: every writer
+must be on the same host, so it doesn't help a Slurm array spread across nodes. `DEEP_ASTEROIDS_DB`
+can instead point at a **Postgres** database -- `get_db()`/`create_db()` are already dialect-generic,
+so this needs no code changes, just the URL. The project already runs a Postgres cluster (the same
+one salad/tracklet use):
+
+```bash
+export PATH=/mmfs1/gscratch/dirac/shared/opt/conda/envs/postgres/bin:$PATH   # psql/createdb/pg_ctl/...
+export LD_LIBRARY_PATH="$(pg_config --libdir):$LD_LIBRARY_PATH"             # psycopg2 needs libpq.so.5
+export DEEP_ASTEROIDS_DB=postgresql://$USER@localhost:55432/deep_asteroids
+deep-asteroids database create --force   # once, to create the schema (createdb deep_asteroids first)
+```
+
+The cluster is `postgres -D /mmfs1/gscratch/dirac/stevengs/claude/salad/pgdata` (port 55432, trust
+auth over loopback), already running; `createdb`/`dropdb` just add/remove a database on it, no new
+server needed. The full-survey SQLite file was migrated into it with `results/migrate_to_postgres.py`
+(see that script's docstring) -- a bulk `COPY`-based loader (73.6M rows in ~29 minutes), not
+row-by-row inserts.
+
+Tests default to SQLite (a fresh temp file per test). `pytest --db-backend=postgres` (or `both`, to
+run every `db_url`-dependent test against both) additionally runs them against a scratch
+`deep_asteroids_test` database on the same cluster (created on first use); it's skipped gracefully if
+that cluster isn't reachable. A test whose own point is SQLite-specific behavior (WAL, the busy
+timeout, `VACUUM INTO`) is marked `@pytest.mark.sqlite_only` and always runs against SQLite regardless
+of `--db-backend`.
+
 ## CLI
 
 ```

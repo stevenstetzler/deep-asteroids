@@ -30,7 +30,7 @@ def add_definition(session, run_id, field="A0b", detector=1, night=NIGHT, band=N
     corners = {}
     if footprint is not None:  # (ra, dec, half_size): a square chip, half_size deg on a side from its centre
         ra_c, dec_c, half = footprint
-        dra = half / np.cos(np.radians(dec_c))
+        dra = float(half / np.cos(np.radians(dec_c)))  # plain float: psycopg2 can't adapt np.float64
         corners = {"ra_00": ra_c - dra, "dec_00": dec_c - half, "ra_01": ra_c - dra, "dec_01": dec_c + half,
                    "ra_10": ra_c + dra, "dec_10": dec_c - half, "ra_11": ra_c + dra, "dec_11": dec_c + half}
     for i, t in enumerate(EXPOSURES_UTC):
@@ -93,4 +93,5 @@ def add_known(session, source, ra, dec, vra, vdec, night=NIGHT, flag=None, **ide
 
 def offset(ra, dec, east_arcsec=0.0, north_arcsec=0.0):
     """A position displaced by the given on-sky amounts."""
-    return ra + east_arcsec * ARCSEC / np.cos(np.radians(dec)), dec + north_arcsec * ARCSEC
+    # plain floats: psycopg2 can't adapt np.float64 (np.cos leaves one here), unlike sqlite3
+    return float(ra + east_arcsec * ARCSEC / np.cos(np.radians(dec))), float(dec + north_arcsec * ARCSEC)

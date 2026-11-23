@@ -77,7 +77,10 @@ def bands_rows(session, night, field, detector_number):
     (``None`` if unsearched); ``snr`` is `search_run`'s own detection threshold (``None``
     unless this run went through `search run` here, which is why it's usually blank too)."""
     rows = session.execute(
-        select(SD.band, SD.run_id, SD.n_exposures, Search.id, func.count(Result.id),
+        # Search.id aggregated like the rest of its own columns: at most one Search row per run_id in
+        # practice, but Postgres (unlike SQLite) requires every non-grouped column to be functionally
+        # dependent on the GROUP BY key, which it can't infer across the outer join
+        select(SD.band, SD.run_id, SD.n_exposures, func.max(Search.id), func.count(Result.id),
                func.min(Search.velocity_0), func.min(Search.velocity_1), func.min(Search.angle_0),
                func.min(Search.angle_1), func.min(Search.dx), func.min(SearchRun.threshold))
         .select_from(SD)
