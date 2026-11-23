@@ -39,7 +39,8 @@ directory is small.
 
 ## Databases
 
-deep-asteroids talks to two databases:
+deep-asteroids talks to two databases (`docs/database.md` has this project's concrete file/server
+locations on klone):
 
 | | What | Default | Override |
 |---|---|---|---|
