@@ -571,6 +571,13 @@ objects out of each search's top 50. `sigma_v` still cleanly separates real matc
 (see `sigma_v_by_group.png`) -- the next step for a usefully deeper search is raising `--num-results` to match,
 not just lowering `--threshold` alone.
 
+Three individual results of `deep-decam-A0b-ccd41-20190402-VR` (the same CCD as the `result_20190402_ccd41_24`
+example, rendered the same way with `deep-asteroids viz result`) show this directly:
+`docs/examples/viz/result_20190402_snr_3_ccd41_1`/`_25`/`_50` are the 1st, 25th (middle) and 50th (last) of its
+50 capped results. The 1st and 25th (`sky.png`) are diffuse scatter with no real track -- noise that outranked
+everything fainter. The 50th, dead last by the search's own ranking, is a clean, tightly-tracked real source
+(steady ~mag 23.3-23.4 in its `light_curve.png`) that a `--num-results` of 50 barely kept.
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++
