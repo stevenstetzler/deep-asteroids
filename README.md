@@ -559,6 +559,18 @@ mpchecker curve (374 findable, 291 recovered, 50% at 23.5) is less certain: its 
 60 searches from the Butler images and summarizes them; `BAND=none` summarizes salad's legacy results instead (it
 needs salad's Postgres for those).
 
+**A deeper search (#43), first step: SNR >= 3 (`--threshold 3`), dx = 10 (the default), same night --
+`docs/examples/viz/night_20190402_snr_3/`.** Run as a Slurm job array (`examples/search_night_array.sh`, one
+task per run_id -- 166 of the night's 186 VR searches had enough image coverage, done in ~25 minutes instead of
+the hours a sequential run would take) into its own Postgres database, `deep_asteroids_snr_3`, so it doesn't
+overwrite the default-threshold baseline. Every search hit `--num-results`'s default cap of 50 (9,000 = 180 x 50,
+not 166 x 50 -- the 14 image-incomplete searches among the 186 still each return up to 50 from partial coverage),
+so the 50-per-search ranking, not detection, is now the limit: completeness tops out around 35% (versus ~90-100%
+brighter than magnitude 24 at the default threshold=5), because a flood of SNR 3-5 noise detections crowds real
+objects out of each search's top 50. `sigma_v` still cleanly separates real matches from noise at this threshold
+(see `sigma_v_by_group.png`) -- the next step for a usefully deeper search is raising `--num-results` to match,
+not just lowering `--threshold` alone.
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++
