@@ -32,6 +32,13 @@
 #   THRESHOLD=3 INGEST_IMAGES=1 \
 #   ./night_summary.sh
 #
+# A deeper (lower-threshold) search turns up artifacts the engine's default --exclude-mask-planes
+# doesn't cover: a CR-interpolated bad column, for instance, showed up as hundreds of real-looking
+# detections in one ccd41 search at threshold=3 (#43) -- its footprints carry CR/INTRP, but neither
+# plane is in the engine's default list (matched to the reference pipeline's own default; see
+# util/detect.py's DEFAULT_EXCLUDE_MASK_PLANES). $EXCLUDE_MASK_PLANES (comma-separated, e.g.
+# "EDGE,SAT,SUSPECT,BAD,NO_DATA,STREAK,CROSSTALK,NOT_DEBLENDED,CR,INTRP") widens it for this run only.
+#
 # A whole night's ~180 searches run one at a time here, which can take hours. For a faster, parallel
 # run across a Slurm partition, do the ingest/images steps as above (DEEP_ASTEROIDS_DB=... INGEST_IMAGES=1
 # ./night_summary.sh, then Ctrl-C once `search run` starts, or set up to that point by hand) and use
@@ -55,8 +62,11 @@ source ./common.sh
 : "${THRESHOLD:=5.0}"
 : "${DX:=10.0}"
 : "${CATALOG_DIR:=}"
+: "${EXCLUDE_MASK_PLANES:=}"  # default: unset -- the engine's own default plane list applies
 CATALOG_OPT=()
 [[ -n "$CATALOG_DIR" ]] && CATALOG_OPT=(--catalog-dir "$CATALOG_DIR")
+MASK_OPT=()
+[[ -n "$EXCLUDE_MASK_PLANES" ]] && MASK_OPT=(--exclude-mask-planes "$EXCLUDE_MASK_PLANES")
 
 deep-asteroids ingest searches --night "$NIGHT"
 deep-asteroids ingest tracklets synthetic mpc-observations mpc-ephemeris --night "$NIGHT"
@@ -69,7 +79,8 @@ fi
 if [[ "$BAND" == none ]]; then
     deep-asteroids ingest results --results-db "$RESULTS_DB" --night "$NIGHT"
 else
-    deep-asteroids search run --night "$NIGHT" --band "$BAND" --threshold "$THRESHOLD" --dx "$DX" "${CATALOG_OPT[@]}"
+    deep-asteroids search run --night "$NIGHT" --band "$BAND" --threshold "$THRESHOLD" --dx "$DX" \
+        "${CATALOG_OPT[@]}" "${MASK_OPT[@]}"
 fi
 deep-asteroids dedup --night "$NIGHT" --band "$BAND"
 deep-asteroids crossmatch --night "$NIGHT" --band "$BAND"

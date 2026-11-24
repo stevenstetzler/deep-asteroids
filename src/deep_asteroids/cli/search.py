@@ -28,6 +28,11 @@ def _selection_options(f):
         click.option("--threshold", type=float, default=5.0, show_default=True, help="Detection threshold (sigma)"),
         click.option("--polarity", type=click.Choice(["positive", "negative", "both"]), default="positive",
                      show_default=True),
+        click.option("--exclude-mask-planes", type=str, default=None,
+                     show_default="the engine's own default: EDGE,SAT,SUSPECT,BAD,NO_DATA,STREAK,CROSSTALK,NOT_DEBLENDED",
+                     help="Comma-separated mask planes to zero before thresholding (e.g. add CR,INTRP for a "
+                          "deeper/noisier search -- #43's bad-column case neither is excluded by default); "
+                          "'' excludes nothing"),
         click.option("--workers", type=int, default=None, show_default="the Slurm allocation",
                      help="Images detected at once"),
     ]):
@@ -47,11 +52,20 @@ def _resolve(session, run_ids, night, field_, detector_number, band):
     return definitions
 
 
+def _exclude_mask_planes(value):
+    """``--exclude-mask-planes``: omitted -> the engine's own default (``None``); ``''`` -> exclude
+    nothing (``()``); else the given comma-separated planes."""
+    if value is None:
+        return None
+    return tuple(p for p in value.split(",") if p)
+
+
 @search.command()
 @_selection_options
 @click.option("--force", is_flag=True, help="Redetect catalogs that already exist")
 @click.pass_context
-def detect(ctx, run_ids, night, field_, detector_number, band, catalog_dir, threshold, polarity, workers, force):
+def detect(ctx, run_ids, night, field_, detector_number, band, catalog_dir, threshold, polarity,
+          exclude_mask_planes, workers, force):
     """Write the per-image detection catalogs for the selected search definitions."""
     from sqlalchemy.orm import Session
 
@@ -60,7 +74,8 @@ def detect(ctx, run_ids, night, field_, detector_number, band, catalog_dir, thre
     from deep_asteroids.util.detect import LSSTDetector
 
     catalog_dir = catalog_dir or default_catalog_dir()
-    detector = LSSTDetector(threshold=threshold, polarity=polarity)
+    detector = LSSTDetector(threshold=threshold, polarity=polarity,
+                            exclude_mask_planes=_exclude_mask_planes(exclude_mask_planes))
     with Session(create_db()) as session:
         for sd in _resolve(session, run_ids, night, field_, detector_number, band):
             s = detect_exposures(session, sd, catalog_dir, detector, workers=workers, force=force)
@@ -84,8 +99,9 @@ def detect(ctx, run_ids, night, field_, detector_number, band, catalog_dir, thre
               help="Fraction of a search's exposures that must have an image; exposures without one are "
                    "skipped and recorded, but a search below this is not run")
 @click.pass_context
-def run(ctx, run_ids, night, field_, detector_number, band, catalog_dir, threshold, polarity, workers, velocity,
-        angle, dx, num_results, refine_iterations, seed, force, remove_catalogs, min_coverage):
+def run(ctx, run_ids, night, field_, detector_number, band, catalog_dir, threshold, polarity,
+        exclude_mask_planes, workers, velocity, angle, dx, num_results, refine_iterations, seed, force,
+        remove_catalogs, min_coverage):
     """Detect (any missing catalogs), search and ingest the selected search definitions.
 
     Each run lands under its search definition's run_id, with a search_run
@@ -99,7 +115,8 @@ def run(ctx, run_ids, night, field_, detector_number, band, catalog_dir, thresho
     from deep_asteroids.util.detect import LSSTDetector
 
     catalog_dir = catalog_dir or default_catalog_dir()
-    detector = LSSTDetector(threshold=threshold, polarity=polarity)
+    detector = LSSTDetector(threshold=threshold, polarity=polarity,
+                            exclude_mask_planes=_exclude_mask_planes(exclude_mask_planes))
     with Session(create_db()) as session:
         for sd in _resolve(session, run_ids, night, field_, detector_number, band):
             summary = run_search_for_definition(
