@@ -627,7 +627,17 @@ grid it was always capped at. See the table below for the comparison across all 
 | 1 (mask fix) | 3 | 10 | 50 | 295 (293) | 151 (148) | 55 | 666 | 148/861 | 266/1,016 |
 | 2 (`--num-results 200`) | 3 | 10 | 200 | 337 (335) | 180 (169) | 60 | 1,986 | 171/861 | 301/1,016 |
 | 3 (`--dx 5`) | 3 | 5 | 200 | 386 (385) | 226 (219) | 81 | 5,979 | 216/861 | 352/1,016 |
-| 4 (`--num-results 1000`) | 3 | 10 | 1000 | TBD | TBD | TBD | TBD | TBD | TBD |
+| 4 (`--num-results 1000`) | 3 | 10 | 1000 | 345 (342) | 191 (177) | 61 | 16,261 | 182/861 | 306/1,016 |
+
+**Step 4 answers the question step 3 raised: the `dx=5` gain was mostly the finer grid, not just a
+deeper ranked list.** Going from 200 to 1,000 results at `dx=10` (5x more candidates kept per search)
+recovers only 171->182 synthetic / 301->306 mpchecker -- a much smaller gain than `dx=5` got from the
+*same* 200-result budget (171->216 / 301->352), while producing by far the largest noise cost of any
+step (putative new 1,986->16,261, more than triple step 3's). At `dx=10`'s coarser grid, most of the
+additional 201-1000th-ranked candidates are noise, not real objects that were simply ranked just
+below the old cutoff -- the coarse grid itself, not the ranking depth, is what was keeping real
+objects from being found distinctly from noise. A finer `dx` is the more effective lever of the two
+for this search; raising `--num-results` mainly trades a lot more noise for a little more depth.
 
 ## Cutouts and forced photometry
 
