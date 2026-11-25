@@ -604,6 +604,31 @@ are noise at all three ranks (1st, 25th and 50th), unlike ccd41 -- expected: a r
 says nothing about which CCD/field has a recoverable real source at all, only where in *that search's own*
 noise-vs-signal ranking a given result falls.
 
+**Third step: halve `--dx` to 5 (`$DX=5`), keeping `--num-results 200` and `--threshold 3` --
+`docs/examples/viz/night_20190402_snr_3_dx5/`.** Same 180 run_ids, same fresh-database-per-variant
+pattern (`deep_asteroids_snr_3_dx5`), same `CR,INTRP`-widened exclude list. A finer `dx` means a denser
+velocity/direction search grid, which raised peak memory past the cluster's default `DefMemPerCPU x
+$CORES` (4G) -- some tasks OOM'd on the first attempt, fixed by adding `$MEM` to
+`search_night_array.sh` (16G here) and resubmitting just the unfinished run_ids (the normal
+not-already-searched resume path, no `--force` needed). Finer `dx` helped substantially more than
+raising `--num-results` alone did: submitted 337->386 (335->385 putative real), synthetic 180->226
+(169->219 putative real), known 60->81 (100%), and completeness recovery 171->216 of 861 (synthetic,
+the first of the three variants to cross 50% recovery, at magnitude 20.8) / 301->352 of 1,016
+(mpchecker). Putative-new candidates grew the most of any step so far, 1,986->5,979 -- a denser grid
+finds more real objects, but also multiplies the SNR 3-5 noise floor it has to rank them against.
+
+**Fourth step: raise `--num-results` to 1,000 (`$NUM_RESULTS=1000`), back to `--dx 10` --
+`docs/examples/viz/night_20190402_snr_3_numresults1000/`.** Isolates how much of the `dx=5` gain above
+was really the finer grid, versus just needing a deeper ranked-results list at the coarser `dx=10`
+grid it was always capped at. See the table below for the comparison across all four variants.
+
+| step | threshold | dx | num-results | submitted (putative real) | synthetic (putative real) | known | putative new | completeness: synthetic | completeness: mpchecker |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 (mask fix) | 3 | 10 | 50 | 295 (293) | 151 (148) | 55 | 666 | 148/861 | 266/1,016 |
+| 2 (`--num-results 200`) | 3 | 10 | 200 | 337 (335) | 180 (169) | 60 | 1,986 | 171/861 | 301/1,016 |
+| 3 (`--dx 5`) | 3 | 5 | 200 | 386 (385) | 226 (219) | 81 | 5,979 | 216/861 | 352/1,016 |
+| 4 (`--num-results 1000`) | 3 | 10 | 1000 | TBD | TBD | TBD | TBD | TBD | TBD |
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++

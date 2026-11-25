@@ -56,6 +56,8 @@ cd "$REPO_ROOT"
 : "${THRESHOLD:=5.0}"
 : "${DX:=10.0}"
 : "${CORES:=4}"
+: "${MEM:=}"  # sbatch --mem (default: the cluster's own DefMemPerCPU=1024M x $CORES -- a finer $DX or a
+              # higher $NUM_RESULTS needs more; e.g. dx=5 at num-results=200 OOM'd the default 4G, raise it)
 : "${THROTTLE:=32}"
 : "${PARTITION:=compute-bigmem}"
 : "${ACCOUNT:=compute-bigmem-astro}"
@@ -103,7 +105,9 @@ if [[ "$n" -eq 0 ]]; then
     exit 0
 fi
 
-job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" \
+MEM_OPT=()
+[[ -n "$MEM" ]] && MEM_OPT=(--mem "$MEM")
+job_id=$(sbatch --parsable -p "$PARTITION" -A "$ACCOUNT" -c "$CORES" --time "$TIME" "${MEM_OPT[@]}" \
     --array="1-${n}%${THROTTLE}" \
     --job-name "search-night-${NIGHT}" \
     --output "$LOG_DIR/search_night_${NIGHT}_%A_%a.out" \
