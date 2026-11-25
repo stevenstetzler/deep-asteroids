@@ -31,7 +31,10 @@ def build_catalog(search_definition, catalog_dir, skip=()):
     """The stacked catalog for ``search_definition``, exposures in time order
     (the order find-asteroids sees them in matters for tie-breaking, so it is
     deterministic): ``ra``/``dec`` in degrees, ``time`` a UTC ``Time``,
-    ``flux``/``mag`` (dropped if no row has one), and the
+    ``flux``/``mag`` (dropped if no row has one), ``mask`` (the detection's own
+    footprint-level mask-plane union, #43 -- find-asteroids carries an unrecognized catalog column
+    straight through into ``gathered.extra``, so this is how a result's own detections end up with
+    one, for filtering/auditing later without having to re-detect), and the
     ``deep_db_detector_exposure_id`` it came from. Raises if a catalog is
     missing or no exposure has any detection. Exposures whose ``deep_db_detector_exposure_id`` is in
     ``skip`` (those with no image) are left out."""
@@ -53,6 +56,8 @@ def build_catalog(search_definition, catalog_dir, skip=()):
             "mag": np.asarray(t["mag"], dtype=float),
             "deep_db_detector_exposure_id": np.full(len(t), e.deep_db_detector_exposure_id),
         })
+        if "mask" in t.colnames:  # absent from a catalog detected before #43's engine rebuilt it
+            out["mask"] = np.asarray(t["mask"], dtype=int)
         tables.append(out)
     if not tables:
         raise ValueError(f"{search_definition.run_id}: no detections in any exposure")

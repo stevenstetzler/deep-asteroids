@@ -154,6 +154,21 @@ inline void removeBadPixels(MaskedImage& middle, std::vector<std::string> const&
     }
 }
 
+/// The union of the exposure's own (pre-convolution) mask bits over every pixel in `fp`'s
+/// footprint -- not just its peak pixel, which `--exclude-mask-planes` can leave unflagged even
+/// when the footprint itself clearly sits on a defect (e.g. a CR-interpolated bad column: the
+/// brightest pixel the algorithm reports needn't be the one bearing the CR/INTRP bit, but much of
+/// the footprint around it usually does). Same technique `--heavy`'s own per-pixel mask column
+/// uses (HeavyFootprint against the original, un-convolved `maskedImage`), just reduced to one
+/// bitmask instead of a per-pixel dump, so every peak can carry it cheaply in the main `--csv`.
+inline image::MaskPixel footprintMaskUnion(detection::Footprint const& fp, MaskedImage const& maskedImage) {
+    detection::HeavyFootprint<Pixel> heavy(fp, maskedImage);
+    auto maskArr = heavy.getMaskArray();
+    image::MaskPixel result = 0;
+    for (std::size_t i = 0; i < maskArr.size(); ++i) result |= maskArr[i];
+    return result;
+}
+
 /// Port of SourceDetectionTask.updatePeaks(): re-detect within each
 /// footprint's own bbox on the (locally background-subtracted) image, and
 /// replace that footprint's peaks with the new ones that fall inside it --

@@ -25,6 +25,12 @@ export LD_LIBRARY_PATH="$(pg_config --libdir):$LD_LIBRARY_PATH"             # ps
 export DEEP_ASTEROIDS_DB=postgresql://$USER@localhost:55432/deep_asteroids
 ```
 
+**`localhost` only works from n3064 itself.** From any other node (e.g. a Slurm job array's tasks,
+which can land anywhere -- see `examples/search_night_array.sh`), use n3064's real hostname instead:
+`postgresql://$USER@n3064.hyak.local:55432/deep_asteroids` (`getent hosts n3064` on n3064 itself
+gives this). `pg_hba.conf` already trusts the cluster's internal subnets, so no password is needed
+either way -- only the hostname needs to change.
+
 Migrated from the full-survey SQLite file with `results/migrate_to_postgres.py` (73.6M rows, 16
 tables, ~29 minutes); see that script's docstring and `results/README.md`'s "Transition to Postgres"
 section.

@@ -559,6 +559,93 @@ mpchecker curve (374 findable, 291 recovered, 50% at 23.5) is less certain: its 
 60 searches from the Butler images and summarizes them; `BAND=none` summarizes salad's legacy results instead (it
 needs salad's Postgres for those).
 
+**A deeper search (#43) -- see `docs/search/` for the full writeup**: per-field-restricted
+completeness numbers across all four parameterizations plus the production baseline
+(`docs/search/deeper_search_20190402.md`), measured compute cost and a whole-survey extrapolation
+(`docs/search/compute_cost.md`), and every (night, field) pair's exposure count
+(`docs/search/field_coverage.md`). The rest of this section covers the night-wide (not
+field-restricted) numbers.
+
+**First step: SNR >= 3 (`--threshold 3`), dx = 10 (the default), same night --
+`docs/examples/viz/night_20190402_snr_3/`.** Run as a Slurm job array (`examples/search_night_array.sh`, one
+task per run_id -- 180 of the night's 186 VR searches had enough image coverage, done in ~25 minutes instead of
+the hours a sequential run would take) into its own Postgres database, `deep_asteroids_snr_3`, so it doesn't
+overwrite the default-threshold baseline. At `--num-results`'s default cap of 50, every search hit the cap
+(9,000 = 180 x 50), so the 50-per-search ranking, not detection, was the limit: completeness topped out around
+35% (versus ~90-100% brighter than magnitude 24 at the default threshold=5), because a flood of SNR 3-5 noise
+detections crowded real objects out of each search's top 50. `sigma_v` still cleanly separates real matches
+from noise at this threshold (see `sigma_v_by_group.png`).
+
+**One real artifact the deeper threshold turned up: a bad column.** ~530 of one tracklet's own "detections"
+sat at the same 3-pixel-wide x, ~58% of them with `CR`/`INTRP` (cosmic-ray-interpolated pixels) in their
+footprint -- neither plane is in the detection engine's default `--exclude-mask-planes` (matched to the
+reference pipeline's own default). Fixed with two additive changes: `--exclude-mask-planes` is now
+configurable end-to-end (`$EXCLUDE_MASK_PLANES` in both night scripts), and every detection's own
+footprint-level mask union is now carried into the catalog as a `mask` column (propagated through to
+`gathered.extra` for later filtering/auditing, not just suppressed at detection time). A per-detection check of
+`result_20190402_snr_3_ccd41_1` (every gathered point's mask, broken out by LSST mask plane) found no further
+mask bits bleeding through once `CR`/`INTRP` were excluded -- the remaining noise there is unmasked, genuine
+pixel noise, not another maskable artifact.
+
+**Second step: raise `--num-results` to 200 (`$NUM_RESULTS`, same `--threshold 3`/`--dx 10`, same 180
+run_ids), to match the flood of noise instead of just excluding more of it.** Re-run with
+`examples/search_night_array.sh FORCE=1 NUM_RESULTS=200` (same fresh `deep_asteroids_snr_3` database, same
+`CR,INTRP`-widened exclude list): submitted 295->337 (293->335 putative real, 99.4%), synthetic 151->180
+(148->169 putative real, 93.9%), known 55->60 (100%), putative new 666->1,986, and completeness recovery
+148->171 of 861 (synthetic) / 266->301 of 1,016 (mpchecker) -- a bigger jump than the mask fix alone, confirming
+the 50-result cap, not detection, was the main limit at this threshold. Completeness is still well under the
+default-threshold baseline (ranking 200 noisy candidates per search is harder than ranking the far cleaner
+threshold=5 set), so a further `--num-results` increase would likely help more, trading off against the larger
+per-search ranking cost.
+
+Three individual results of `deep-decam-A0b-ccd41-20190402-VR` and `deep-decam-A0b-ccd42-20190402-VR` (the same
+CCD41 as the `result_20190402_ccd41_24` example, plus CCD42, rendered the same way with `deep-asteroids viz
+result`) illustrate the ranking limit: `docs/examples/viz/result_20190402_snr_3_ccd{41,42}_1`/`_25`/`_50` are
+each CCD's 1st, 25th (middle) and 50th (last) result **of the original 50-result-capped run** (not re-rendered
+for the `--num-results 200` run above, so the per-result example renders in these folders still reflect the
+pre-#43-step-2 numbers). ccd41's 1st and 25th (`sky.png`) are diffuse scatter with no real track -- noise that
+outranked everything fainter even after the mask fix (there's still plenty of other SNR 3-5 noise to take the
+top ranks); ccd41's 50th, dead last by the search's own ranking, is a clean, tightly-tracked real source
+(steady ~mag 23.3-23.4 in its `light_curve.png`) that a `--num-results` of 50 barely kept. ccd42's three results
+are noise at all three ranks (1st, 25th and 50th), unlike ccd41 -- expected: a result's rank among the top 50
+says nothing about which CCD/field has a recoverable real source at all, only where in *that search's own*
+noise-vs-signal ranking a given result falls.
+
+**Third step: halve `--dx` to 5 (`$DX=5`), keeping `--num-results 200` and `--threshold 3` --
+`docs/examples/viz/night_20190402_snr_3_dx5/`.** Same 180 run_ids, same fresh-database-per-variant
+pattern (`deep_asteroids_snr_3_dx5`), same `CR,INTRP`-widened exclude list. A finer `dx` means a denser
+velocity/direction search grid, which raised peak memory past the cluster's default `DefMemPerCPU x
+$CORES` (4G) -- some tasks OOM'd on the first attempt, fixed by adding `$MEM` to
+`search_night_array.sh` (16G here) and resubmitting just the unfinished run_ids (the normal
+not-already-searched resume path, no `--force` needed). Finer `dx` helped substantially more than
+raising `--num-results` alone did: submitted 337->386 (335->385 putative real), synthetic 180->226
+(169->219 putative real), known 60->81 (100%), and completeness recovery 171->216 of 861 (synthetic,
+the first of the three variants to cross 50% recovery, at magnitude 20.8) / 301->352 of 1,016
+(mpchecker). Putative-new candidates grew the most of any step so far, 1,986->5,979 -- a denser grid
+finds more real objects, but also multiplies the SNR 3-5 noise floor it has to rank them against.
+
+**Fourth step: raise `--num-results` to 1,000 (`$NUM_RESULTS=1000`), back to `--dx 10` --
+`docs/examples/viz/night_20190402_snr_3_numresults1000/`.** Isolates how much of the `dx=5` gain above
+was really the finer grid, versus just needing a deeper ranked-results list at the coarser `dx=10`
+grid it was always capped at. See the table below for the comparison across all four variants.
+
+| step | threshold | dx | num-results | submitted (putative real) | synthetic (putative real) | known | putative new | completeness: synthetic | completeness: mpchecker |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 (mask fix) | 3 | 10 | 50 | 295 (293) | 151 (148) | 55 | 666 | 148/861 | 266/1,016 |
+| 2 (`--num-results 200`) | 3 | 10 | 200 | 337 (335) | 180 (169) | 60 | 1,986 | 171/861 | 301/1,016 |
+| 3 (`--dx 5`) | 3 | 5 | 200 | 386 (385) | 226 (219) | 81 | 5,979 | 216/861 | 352/1,016 |
+| 4 (`--num-results 1000`) | 3 | 10 | 1000 | 345 (342) | 191 (177) | 61 | 16,261 | 182/861 | 306/1,016 |
+
+**Step 4 answers the question step 3 raised: the `dx=5` gain was mostly the finer grid, not just a
+deeper ranked list.** Going from 200 to 1,000 results at `dx=10` (5x more candidates kept per search)
+recovers only 171->182 synthetic / 301->306 mpchecker -- a much smaller gain than `dx=5` got from the
+*same* 200-result budget (171->216 / 301->352), while producing by far the largest noise cost of any
+step (putative new 1,986->16,261, more than triple step 3's). At `dx=10`'s coarser grid, most of the
+additional 201-1000th-ranked candidates are noise, not real objects that were simply ranked just
+below the old cutoff -- the coarse grid itself, not the ranking depth, is what was keeping real
+objects from being found distinctly from noise. A finer `dx` is the more effective lever of the two
+for this search; raising `--num-results` mainly trades a lot more noise for a little more depth.
+
 ## Cutouts and forced photometry
 
 `deep_asteroids.util.cutout.LSSTCutoutPhotometry` runs a vendored C++

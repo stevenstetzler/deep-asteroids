@@ -243,3 +243,9 @@ src/deep_asteroids/_version.py
 /results/vr_run_ids.txt
 /results/vr_run_ids.shard_*.txt
 /results/vr_run_ids_submitted.txt
+/results/logs
+
+# examples/search_night_array.sh's (#43) own generated run_id list and sbatch logs -- regenerated
+# each invocation, not source
+/examples/search_night_*_run_ids.txt
+/examples/logs

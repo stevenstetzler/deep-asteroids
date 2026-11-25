@@ -260,24 +260,29 @@ int main(int argc, char** argv) {
     }
 
     // --- peak CSV: detect_min's columns plus ra_deg/dec_deg (from the
-    // exposure's own Wcs, evaluated at the peak's float centroid fx/fy) and
+    // exposure's own Wcs, evaluated at the peak's float centroid fx/fy),
     // flux/flux_sigma/snr/log_likelihood/mag (from forced PSF photometry at
     // the peak's integer ix/iy position, via the exposure's own Psf +
     // PhotoCalib -- see computeForcedPhotometry() above; this is what
     // detect()'s own forced_flux/forced_sigma/snr/log_likelihood/forced_mag
-    // columns are, not a simpler raw-peak-value magnitude). ---
+    // columns are, not a simpler raw-peak-value magnitude), and mask (the
+    // footprint's own mask-plane union, dc::footprintMaskUnion() -- not just
+    // the peak pixel's, which can miss a defect the footprint clearly sits
+    // on; this is deep-asteroids' own addition, there is no equivalent
+    // detect() column). ---
     if (!opts.csvPath.empty()) {
         std::ofstream csvFile;
         if (opts.csvPath != "-") csvFile.open(opts.csvPath);
         std::ostream& csvOut = (opts.csvPath == "-") ? std::cout : csvFile;
         csvOut << "polarity,footprint_id,footprint_area,ix,iy,fx,fy,value,significance,ra_deg,dec_deg,"
-                  "flux,flux_sigma,snr,log_likelihood,mag\n";
+                  "flux,flux_sigma,snr,log_likelihood,mag,mask\n";
         csvOut << std::fixed << std::setprecision(6);
         auto middleVariance = out.middle.getVariance()->getArray();
         auto middleOrigin = out.middle.getXY0();
         int footprintId = 0;
         for (auto const& [fpSet, label, sign] : out.polarityResults) {
             for (auto const& fp : *fpSet->getFootprints()) {
+                auto maskUnion = dc::footprintMaskUnion(*fp, out.maskedImage);
                 for (auto const& peak : fp->getPeaks()) {
                     int mx = peak.getIx() - middleOrigin.getX();
                     int my = peak.getIy() - middleOrigin.getY();
@@ -295,7 +300,7 @@ int main(int argc, char** argv) {
                            << peak.getIy() << "," << peak.getFx() << "," << peak.getFy() << "," << peak.getPeakValue()
                            << "," << significance << "," << sky.getRa().asDegrees() << "," << sky.getDec().asDegrees()
                            << "," << phot.flux << "," << phot.fluxSigma << "," << phot.snr << "," << phot.logLikelihood
-                           << "," << phot.mag << "\n";
+                           << "," << phot.mag << "," << static_cast<unsigned int>(maskUnion) << "\n";
                 }
                 ++footprintId;
             }

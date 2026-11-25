@@ -45,13 +45,16 @@ if uri.endswith("fail.fits"):
     print("boom", file=sys.stderr)
     sys.exit(3)
 header = ("polarity,footprint_id,footprint_area,ix,iy,fx,fy,value,significance,"
-          "ra_deg,dec_deg,flux,flux_sigma,snr,log_likelihood,mag")
+          "ra_deg,dec_deg,flux,flux_sigma,snr,log_likelihood,mag,mask")
 rows = [] if uri.endswith("empty.fits") else [
-    f"{opts['--threshold-polarity']},0,10,1,2,1.0,2.0,3.0,{opts['--sigma']},215.5,-13.5,100.0,10.0,10.0,-5.0,nan",
-    f"{opts['--threshold-polarity']},1,12,3,4,3.0,4.0,3.5,6.0,215.6,-13.6,200.0,10.0,20.0,-9.0,22.5",
+    f"{opts['--threshold-polarity']},0,10,1,2,1.0,2.0,3.0,{opts['--sigma']},215.5,-13.5,100.0,10.0,10.0,-5.0,nan,0",
+    f"{opts['--threshold-polarity']},1,12,3,4,3.0,4.0,3.5,6.0,215.6,-13.6,200.0,10.0,20.0,-9.0,22.5,44",
 ]
 open(opts["--csv"], "w").write("\\n".join([header, *rows]) + "\\n")
-open(opts["--metadata"], "w").write("MJD=58576.215349169448\\nVISIT=845580\\nDETECTOR=N11\\nIMAGE_PATH=" + uri + "\\n")
+meta = "MJD=58576.215349169448\\nVISIT=845580\\nDETECTOR=N11\\nIMAGE_PATH=" + uri + "\\n"
+if "--exclude-mask-planes" in opts:
+    meta += "EXCLUDE_MASK_PLANES_SEEN=" + opts["--exclude-mask-planes"] + "\\n"
+open(opts["--metadata"], "w").write(meta)
 """
 
 
@@ -76,6 +79,7 @@ def test_detector_parses_csv_and_metadata(engine_dir):
     assert list(table["ra"]) == [215.5, 215.6]
     assert list(table["polarity"]) == ["both", "both"] and list(table["significance"]) == [4.0, 6.0]
     assert np.isnan(table["mag"][0]) and table["mag"][1] == 22.5
+    assert list(table["mask"]) == [0, 44]  # 44 = DETECTED|CR|INTRP (#43)
     assert table.meta["MJD"] == 58576.215349169448 and table.meta["VISIT"] == 845580
 
     assert len(LSSTDetector(engine_dir=engine_dir).detect("/x/empty.fits")) == 0
@@ -86,6 +90,26 @@ def test_detector_parses_csv_and_metadata(engine_dir):
 def test_detector_needs_the_binary(tmp_path):
     with pytest.raises(FileNotFoundError, match="build it first"):
         LSSTDetector(engine_dir=tmp_path)
+
+
+def test_detector_exclude_mask_planes_default_omits_the_flag(engine_dir):
+    """Unset (``None``): don't pass ``--exclude-mask-planes`` at all, so the engine's own default
+    plane list applies -- a default-threshold run's behavior must not change (#43)."""
+    table = LSSTDetector(engine_dir=engine_dir).detect("/x/image.fits")
+    assert "EXCLUDE_MASK_PLANES_SEEN" not in table.meta
+
+
+def test_detector_exclude_mask_planes_passed_through(engine_dir):
+    """Given explicitly (e.g. widening the default to catch a bad column's CR/INTRP, #43), joined
+    into one comma-separated ``--exclude-mask-planes`` argument."""
+    table = LSSTDetector(engine_dir=engine_dir, exclude_mask_planes=("SAT", "CR", "INTRP")).detect("/x/image.fits")
+    assert table.meta["EXCLUDE_MASK_PLANES_SEEN"] == "SAT,CR,INTRP"
+
+
+def test_detector_exclude_mask_planes_empty_tuple_excludes_nothing(engine_dir):
+    """() (not None): exclude nothing at all, overriding the engine's own default."""
+    table = LSSTDetector(engine_dir=engine_dir, exclude_mask_planes=()).detect("/x/image.fits")
+    assert table.meta["EXCLUDE_MASK_PLANES_SEEN"] == ""
 
 
 class StubDetector:
@@ -209,6 +233,29 @@ def test_build_catalog(session, definition, tmp_path):
     assert t["time"].mjd[0] == T0
     assert set(t["time"].mjd) == {e.midpoint_mjd for e in definition.exposures if e.deep_db_detector_exposure_id != 1002}
     assert "flux" in t.colnames and "mag" in t.colnames
+
+
+def test_build_catalog_carries_mask_through_when_present(session, definition, tmp_path):
+    """#43: a per-detection mask (the footprint-level union the engine's --csv now writes) survives
+    into the stacked catalog find-asteroids reads, so it ends up in gathered.extra downstream --
+    but only once every per-image catalog has it (an older one, from before the engine was rebuilt,
+    won't -- backward compatible, not required)."""
+    for e in definition.exposures:
+        Table({"ra": [215.0, 215.01], "dec": [-13.0, -13.0], "flux": [100.0, 100.0], "mag": [22.0, 22.0],
+              "mask": [0, 44]}).write(catalog_path(tmp_path, e.deep_db_detector_exposure_id), format="ascii.ecsv")
+    cat = build_catalog(definition, tmp_path)
+    assert "mask" in cat.table.colnames
+    assert sorted(set(cat.table["mask"])) == [0, 44]
+    assert cat.table["mask"].dtype.kind == "i"
+
+
+def test_build_catalog_without_mask_column_is_still_fine(session, definition, tmp_path):
+    """A catalog detected before #43 (no mask column at all) doesn't break the stack."""
+    for e in definition.exposures:
+        Table({"ra": [215.0], "dec": [-13.0], "flux": [100.0], "mag": [22.0]}).write(
+            catalog_path(tmp_path, e.deep_db_detector_exposure_id), format="ascii.ecsv")
+    cat = build_catalog(definition, tmp_path)
+    assert "mask" not in cat.table.colnames
 
 
 def test_build_catalog_errors_and_nan_columns(session, definition, tmp_path):
