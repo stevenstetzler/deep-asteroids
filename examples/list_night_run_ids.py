@@ -24,11 +24,11 @@ from deep_asteroids.database.search import band_clause, parse_band
 MIN_EXPOSURES = 2  # search.detect.MIN_EXPOSURES
 
 
-def run_ids_to_search(session, night, band=Ellipsis, min_coverage=0.0):
+def run_ids_to_search(session, night, band=Ellipsis, min_coverage=0.0, include_searched=False):
     rows = session.execute(
         select(SD.id, SD.run_id, SD.n_exposures).where(SD.night == night, band_clause(band))
     ).all()
-    already_searched = set(session.scalars(
+    already_searched = set() if include_searched else set(session.scalars(
         select(Search.run_id).where(Search.run_id.in_([r.run_id for r in rows]))))
 
     run_ids = []
@@ -54,7 +54,12 @@ if __name__ == "__main__":
                         help="a band, or '' / none for the undefined-band (all-band) rows (default VR)")
     parser.add_argument("--min-coverage", type=float, default=0.0,
                         help="fraction of a search's exposures that must have an image (default 0)")
+    parser.add_argument("--include-searched", action="store_true",
+                        help="also list run_ids that already have a `search` row -- for re-running a "
+                             "night with different search parameters (e.g. --force --num-results) "
+                             "rather than resuming a partial array")
     args = parser.parse_args()
     with Session(get_db()) as session:
-        for run_id in run_ids_to_search(session, args.night, parse_band(args.band), args.min_coverage):
+        for run_id in run_ids_to_search(session, args.night, parse_band(args.band), args.min_coverage,
+                                         args.include_searched):
             print(run_id)

@@ -38,9 +38,13 @@
 # /gscratch/scrubbed/$USER/deep_asteroids/catalogs -- shared across threshold/dx variants is fine,
 # catalogs are keyed by exposure id only, not by search parameters), $EXCLUDE_MASK_PLANES
 # (comma-separated, default: the engine's own default list -- a deeper/noisier search can widen it,
-# e.g. add CR,INTRP for a bad column the default doesn't cover; see night_summary.sh's own note) all
-# override. Re-running the submitter after a partial array (or once it's done) only submits what's
-# left (list_night_run_ids.py excludes any run_id that already has a `search` row).
+# e.g. add CR,INTRP for a bad column the default doesn't cover; see night_summary.sh's own note),
+# $NUM_RESULTS (find-asteroids' own ranked-results-per-search cap, default 50) all override. Re-running
+# the submitter after a partial array (or once it's done) only submits what's left
+# (list_night_run_ids.py excludes any run_id that already has a `search` row). $FORCE=1 instead
+# re-searches *every* run_id of the night/band, including ones already searched (`--force`'s own
+# in-place replace) -- use this to redo an already-completed night with different parameters, e.g. a
+# higher $NUM_RESULTS, without starting from a fresh database.
 set -euo pipefail
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$REPO_ROOT"
@@ -58,12 +62,15 @@ cd "$REPO_ROOT"
 : "${TIME:=00:15:00}"
 : "${CATALOG_DIR:=/gscratch/scrubbed/$USER/deep_asteroids/catalogs}"
 : "${EXCLUDE_MASK_PLANES:=}"  # default: unset -- the engine's own default plane list applies
+: "${NUM_RESULTS:=50}"  # find-asteroids' own default; raise for a deeper ranked-results list (e.g. #43 follow-up)
+: "${FORCE:=0}"  # 1: re-search run_ids that already have a `search` row (e.g. a NUM_RESULTS/THRESHOLD/DX
+                 # change for an already-searched night), passing `--force` and listing them too
 : "${LOG_DIR:=$REPO_ROOT/examples/logs}"
 : "${RUN_ID_LIST:=$REPO_ROOT/examples/search_night_${NIGHT}_run_ids.txt}"
 case "$DEEP_ASTEROIDS_DB" in
     sqlite*) echo "search_night_array.sh: \$DEEP_ASTEROIDS_DB must be Postgres, not SQLite -- array tasks can land on different nodes (see this script's own docstring)" >&2; exit 2 ;;
 esac
-export DEEP_ASTEROIDS_DB DEEP_DB REPO_ROOT CATALOG_DIR THRESHOLD DX EXCLUDE_MASK_PLANES RUN_ID_LIST
+export DEEP_ASTEROIDS_DB DEEP_DB REPO_ROOT CATALOG_DIR THRESHOLD DX EXCLUDE_MASK_PLANES NUM_RESULTS FORCE RUN_ID_LIST
 
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     # Worker: one array task, one run_id -- line $SLURM_ARRAY_TASK_ID of $RUN_ID_LIST.
@@ -75,16 +82,21 @@ if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
     echo "search_night_array.sh: task $SLURM_ARRAY_TASK_ID: $run_id, job $SLURM_JOB_ID" >&2
     MASK_OPT=()
     [[ -n "$EXCLUDE_MASK_PLANES" ]] && MASK_OPT=(--exclude-mask-planes "$EXCLUDE_MASK_PLANES")
+    FORCE_OPT=()
+    [[ "$FORCE" == 1 ]] && FORCE_OPT=(--force)
     deep-asteroids search run --run-id "$run_id" --catalog-dir "$CATALOG_DIR" --threshold "$THRESHOLD" --dx "$DX" \
-        "${MASK_OPT[@]}"
+        --num-results "$NUM_RESULTS" "${MASK_OPT[@]}" "${FORCE_OPT[@]}"
     echo "search_night_array.sh: task $SLURM_ARRAY_TASK_ID: $run_id done" >&2
     exit 0
 fi
 
 # Submitter: every (night, band) run_id with enough image coverage that doesn't already have a
 # `search` row (list_night_run_ids.py) -- so a re-run after a partial array only submits the rest.
+# $FORCE=1 instead lists (and re-searches) every one, including those already searched.
 mkdir -p "$LOG_DIR"
-python3 examples/list_night_run_ids.py --night "$NIGHT" --band "$BAND" > "$RUN_ID_LIST"
+INCLUDE_SEARCHED_OPT=()
+[[ "$FORCE" == 1 ]] && INCLUDE_SEARCHED_OPT=(--include-searched)
+python3 examples/list_night_run_ids.py --night "$NIGHT" --band "$BAND" "${INCLUDE_SEARCHED_OPT[@]}" > "$RUN_ID_LIST"
 n=$(wc -l < "$RUN_ID_LIST")
 if [[ "$n" -eq 0 ]]; then
     echo "search_night_array.sh: nothing left to search for night $NIGHT band $BAND (already done, or none has enough image coverage)" >&2
