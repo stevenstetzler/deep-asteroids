@@ -559,7 +559,14 @@ mpchecker curve (374 findable, 291 recovered, 50% at 23.5) is less certain: its 
 60 searches from the Butler images and summarizes them; `BAND=none` summarizes salad's legacy results instead (it
 needs salad's Postgres for those).
 
-**A deeper search (#43), first step: SNR >= 3 (`--threshold 3`), dx = 10 (the default), same night --
+**A deeper search (#43) -- see `docs/search/` for the full writeup**: per-field-restricted
+completeness numbers across all four parameterizations plus the production baseline
+(`docs/search/deeper_search_20190402.md`), measured compute cost and a whole-survey extrapolation
+(`docs/search/compute_cost.md`), and every (night, field) pair's exposure count
+(`docs/search/field_coverage.md`). The rest of this section covers the night-wide (not
+field-restricted) numbers.
+
+**First step: SNR >= 3 (`--threshold 3`), dx = 10 (the default), same night --
 `docs/examples/viz/night_20190402_snr_3/`.** Run as a Slurm job array (`examples/search_night_array.sh`, one
 task per run_id -- 180 of the night's 186 VR searches had enough image coverage, done in ~25 minutes instead of
 the hours a sequential run would take) into its own Postgres database, `deep_asteroids_snr_3`, so it doesn't
